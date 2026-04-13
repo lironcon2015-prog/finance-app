@@ -173,8 +173,28 @@ function deleteFromModal() {
   renderTransactions()
 }
 
+// ===== VERSION CHECK =====
+async function checkForUpdates() {
+  try {
+    const res = await fetch('./version.json?t=' + Date.now())
+    const remote = await res.json()
+    const local = localStorage.getItem('appCache')
+    if (local && local !== remote.cache) {
+      localStorage.setItem('appCache', remote.cache)
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration()
+        if (reg?.waiting) reg.waiting.postMessage('SKIP_WAITING')
+      }
+      location.reload()
+      return
+    }
+    localStorage.setItem('appCache', remote.cache)
+  } catch {}
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
+  checkForUpdates()
   initDefaultData()
   navigate('dashboard')
 

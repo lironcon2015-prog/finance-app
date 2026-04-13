@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'finance-v1.0.7'
+const CACHE_VERSION = 'finance-v1.0.8'
 const ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const ASSETS = [
 ]
 
 self.addEventListener('install', e => {
+  self.skipWaiting()
   e.waitUntil(caches.open(CACHE_VERSION).then(c => c.addAll(ASSETS)))
 })
 
