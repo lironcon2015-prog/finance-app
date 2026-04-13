@@ -309,15 +309,67 @@
   </div>
 </div>
 
+<!-- Update Toast -->
+<div id="updateToast" class="update-toast">
+  <span>✨ גרסה חדשה זמינה!</span>
+  <button onclick="applyUpdate()">עדכן עכשיו</button>
+</div>
+
 <script src="app.js"></script>
 <script src="dashboard.js"></script>
 <script src="transactions.js"></script>
 <script src="import.js"></script>
 <script src="analysis.js"></script>
 <script src="settings.js"></script>
+
+<!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>
+  let newWorker;
+
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').then(reg => {
+        
+        // Listen for new Service Worker installation
+        reg.addEventListener('updatefound', () => {
+          newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            // New SW installed, and there is a previous one controlling the page (it's an update)
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              document.getElementById('updateToast').classList.add('show');
+            }
+          });
+        });
+
+        // Trigger manual check via version.json
+        fetch('./version.json?t=' + Date.now())
+          .then(res => res.json())
+          .then(data => {
+            const currentVersion = localStorage.getItem('appVersion');
+            if (currentVersion && currentVersion !== data.version) {
+              reg.update(); // Force SW update check
+            }
+            localStorage.setItem('appVersion', data.version);
+          }).catch(e => console.log('Version check failed', e));
+
+      }).catch(err => console.error('SW Error:', err));
+
+      // Reload page when new SW takes control
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          window.location.reload();
+          refreshing = true;
+        }
+      });
+    });
+  }
+
+  // Triggered by the "עדכן עכשיו" button
+  function applyUpdate() {
+    if (newWorker) {
+      newWorker.postMessage('SKIP_WAITING');
+    }
   }
 </script>
 </body>
