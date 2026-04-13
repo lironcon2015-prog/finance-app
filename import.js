@@ -170,14 +170,30 @@ function saveImport() {
 
 // ===== JSON PARSER =====
 function tryParseJSON(text) {
+  // ניסיון ישיר
   try { return JSON.parse(text) } catch {}
-  // JSON חתוך – מנסה לתקן
-  // מוצא את האובייקט השלם האחרון ב-array
-  const lastComplete = text.lastIndexOf('}')
-  if (lastComplete > 0) {
-    const fixed = text.slice(0, lastComplete + 1) + ']'
+
+  // חילוץ מערך JSON מתוך הטקסט
+  const start = text.indexOf('[')
+  if (start < 0) throw new Error('תשובת AI לא הכילה נתונים – נסה שוב')
+  let jsonPart = text.slice(start)
+
+  // הסרת טקסט אחרי סוף המערך
+  const end = jsonPart.lastIndexOf(']')
+  if (end > 0) {
+    jsonPart = jsonPart.slice(0, end + 1)
+    try { return JSON.parse(jsonPart) } catch {}
+  }
+
+  // JSON חתוך – מוצא את האובייקט השלם האחרון
+  const lastBrace = jsonPart.lastIndexOf('}')
+  if (lastBrace > 0) {
+    let fixed = jsonPart.slice(0, lastBrace + 1)
+    // הסרת פסיק מיותר לפני סגירה
+    fixed = fixed.replace(/,\s*$/, '') + ']'
     try { return JSON.parse(fixed) } catch {}
   }
+
   throw new Error('שגיאה בפרסור תשובת AI – נסה שוב')
 }
 
