@@ -57,14 +57,14 @@ async function parseWithGemini(file, accountId, apiKey) {
 
     const body = {
       contents: [{ parts }],
-      generationConfig: { temperature: 0.1 }
+      generationConfig: { temperature: 0.1, maxOutputTokens: 65536 }
     }
 
     const data = await callGemini(apiKey, body)
 
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
     text = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim()
-    const parsed = JSON.parse(text)
+    const parsed = tryParseJSON(text)
 
     // מיפוי קטגוריות
     const cats = getCategories()
@@ -159,6 +159,19 @@ function saveImport() {
   document.getElementById('importStep3').style.display = 'none'
   document.getElementById('importStep4').style.display = 'block'
   document.getElementById('importDoneMsg').textContent = `${newTx.length} עסקאות נשמרו בהצלחה`
+}
+
+// ===== JSON PARSER =====
+function tryParseJSON(text) {
+  try { return JSON.parse(text) } catch {}
+  // JSON חתוך – מנסה לתקן
+  // מוצא את האובייקט השלם האחרון ב-array
+  const lastComplete = text.lastIndexOf('}')
+  if (lastComplete > 0) {
+    const fixed = text.slice(0, lastComplete + 1) + ']'
+    try { return JSON.parse(fixed) } catch {}
+  }
+  throw new Error('שגיאה בפרסור תשובת AI – נסה שוב')
 }
 
 // ===== HELPERS =====
