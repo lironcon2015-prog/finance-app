@@ -10,8 +10,43 @@
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    #updateBanner {
+      display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+      background: #1e3a5f; border-bottom: 2px solid #3b82f6;
+      padding: .65rem 1.25rem; direction: rtl;
+      display: none; align-items: center; justify-content: space-between; gap: 1rem;
+    }
+    #updateBanner.visible { display: flex; }
+    #updateBanner span { font-size: .875rem; color: #e8f4ff; }
+    #updateBanner button {
+      background: #3b82f6; color: #fff; border: none; border-radius: 8px;
+      padding: .4rem 1rem; font-family: 'Heebo', sans-serif; font-size: .825rem;
+      font-weight: 600; cursor: pointer; white-space: nowrap;
+    }
+    #updateBanner button:hover { background: #2563eb; }
+    #updateBanner .dismiss {
+      background: transparent; color: #8aaccc; border: none;
+      font-size: 1.1rem; cursor: pointer; padding: .2rem .4rem; border-radius: 4px;
+    }
+    body.has-update-banner .navbar,
+    body.has-update-banner .sidebar { top: 44px; }
+    body.has-update-banner .main-content { padding-top: calc(44px + 2rem); }
+    @media (max-width: 768px) {
+      body.has-update-banner .main-content { padding-top: calc(44px + var(--nav-h) + 1rem); }
+    }
+  </style>
 </head>
 <body>
+
+<!-- באנר עדכון -->
+<div id="updateBanner">
+  <span>🔄 גרסה חדשה זמינה</span>
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <button onclick="applyUpdate()">עדכן עכשיו</button>
+    <button class="dismiss" onclick="dismissUpdate()" title="סגור">✕</button>
+  </div>
+</div>
 
 <!-- ===== NAVBAR ===== -->
 <nav class="navbar">
@@ -306,5 +341,80 @@
 <script src="js/import.js"></script>
 <script src="js/analysis.js"></script>
 <script src="js/settings.js"></script>
+
+<script>
+// ===== SERVICE WORKER + עדכונים =====
+(function () {
+  if (!('serviceWorker' in navigator)) return
+
+  let _pendingWorker = null
+
+  function showUpdateBanner() {
+    const banner = document.getElementById('updateBanner')
+    if (!banner) return
+    banner.classList.add('visible')
+    document.body.classList.add('has-update-banner')
+  }
+
+  window.applyUpdate = function () {
+    if (_pendingWorker) {
+      _pendingWorker.postMessage('SKIP_WAITING')
+    } else {
+      location.reload()
+    }
+  }
+
+  window.dismissUpdate = function () {
+    const banner = document.getElementById('updateBanner')
+    if (banner) banner.classList.remove('visible')
+    document.body.classList.remove('has-update-banner')
+  }
+
+  navigator.serviceWorker.register('./sw.js').then(reg => {
+
+    // בדיקת עדכון בכל פתיחה
+    reg.update()
+
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          _pendingWorker = newWorker
+          showUpdateBanner()
+        }
+      })
+    })
+
+    // אם הדפדפן כבר ישן עם waiting worker (רענון אחרי כיבוי)
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      _pendingWorker = reg.waiting
+      showUpdateBanner()
+    }
+
+  }).catch(err => console.warn('SW registration failed:', err))
+
+  // אחרי skipWaiting — רענן
+  let refreshing = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) { refreshing = true; location.reload() }
+  })
+
+  // בדיקת version.json כל 10 דקות (גיבוי למקרה שה-SW לא מזהה)
+  async function checkVersion() {
+    try {
+      const res = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store' })
+      const { version } = await res.json()
+      const stored = localStorage.getItem('appVersion')
+      if (stored && stored !== version) {
+        showUpdateBanner()
+      }
+      localStorage.setItem('appVersion', version)
+    } catch {}
+  }
+  checkVersion()
+  setInterval(checkVersion, 10 * 60 * 1000)
+
+})()
+</script>
 </body>
 </html>
