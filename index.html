@@ -326,35 +326,45 @@
 <script>
   let newWorker;
 
+  function showUpdateToast() {
+    document.getElementById('updateToast').classList.add('show');
+  }
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js').then(reg => {
         
-        // Listen for new Service Worker installation
+        // מקרה 1: כבר יש עדכון שממתין ברקע מהפעלה קודמת
+        if (reg.waiting) {
+          newWorker = reg.waiting;
+          showUpdateToast();
+        }
+
+        // מקרה 2: עדכון חדש נמצא בזמן שהאפליקציה פתוחה
         reg.addEventListener('updatefound', () => {
           newWorker = reg.installing;
           newWorker.addEventListener('statechange', () => {
-            // New SW installed, and there is a previous one controlling the page (it's an update)
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              document.getElementById('updateToast').classList.add('show');
+              showUpdateToast();
             }
           });
         });
 
-        // Trigger manual check via version.json
-        fetch('./version.json?t=' + Date.now())
+        // בדיקה יזומה מול הקובץ (עוקף מטמון של גיטהב)
+        fetch('./version.json?t=' + new Date().getTime())
           .then(res => res.json())
           .then(data => {
-            const currentVersion = localStorage.getItem('appVersion');
-            if (currentVersion && currentVersion !== data.version) {
-              reg.update(); // Force SW update check
+            const currentVer = localStorage.getItem('appVer');
+            // אם זו פעם ראשונה, רק נשמור. אם יש שינוי, נכריח עדכון.
+            if (currentVer && currentVer !== data.version) {
+              reg.update(); 
             }
-            localStorage.setItem('appVersion', data.version);
-          }).catch(e => console.log('Version check failed', e));
+            localStorage.setItem('appVer', data.version);
+          }).catch(console.error);
 
-      }).catch(err => console.error('SW Error:', err));
+      });
 
-      // Reload page when new SW takes control
+      // מרענן את העמוד כשה-SW החדש משתלט
       let refreshing = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!refreshing) {
@@ -365,7 +375,6 @@
     });
   }
 
-  // Triggered by the "עדכן עכשיו" button
   function applyUpdate() {
     if (newWorker) {
       newWorker.postMessage('SKIP_WAITING');
