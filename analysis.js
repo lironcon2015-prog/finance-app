@@ -115,12 +115,7 @@ async function sendChat() {
 שאלה: ${msg}`
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{ parts:[{ text: context }] }], generationConfig:{ temperature:0.3 } }) }
-    )
-    const data = await res.json()
+    const data = await callGemini(apiKey, { contents:[{ parts:[{ text: context }] }], generationConfig:{ temperature:0.3 } })
     const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || 'לא התקבלה תשובה'
     _chatMessages.push({ role: 'ai', text: answer })
   } catch(e) {

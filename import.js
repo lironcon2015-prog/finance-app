@@ -63,13 +63,7 @@ async function parseWithGemini(file, accountId, apiKey) {
       generationConfig: { temperature: 0.1 }
     }
 
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-    )
-    const data = await res.json()
-
-    if (!res.ok) throw new Error(data.error?.message || 'שגיאת API')
+    const data = await callGemini(apiKey, body)
 
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
     text = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim()
