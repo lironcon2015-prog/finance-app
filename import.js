@@ -38,8 +38,8 @@ async function parseWithGemini(file, accountId, apiKey) {
   document.getElementById('importFilename').textContent = file.name
 
   try {
-    const base64 = await fileToBase64(file)
-    const mimeType = getMimeType(file.name)
+    const isExcel = /\.xlsx?$/i.test(file.name)
+    let parts
 
     const prompt = `אתה מנתח דוחות בנק ישראלים. נתח את הקובץ והחזר JSON בלבד – ללא טקסט נוסף, ללא backticks.
 
@@ -53,13 +53,20 @@ async function parseWithGemini(file, accountId, apiKey) {
 - אל תכלול יתרות חשבון כעסקאות
 - מיין לפי תאריך עולה`
 
+    if (isExcel) {
+      const csv = await excelToCSV(file)
+      parts = [{ text: prompt + '\n\nנתוני הקובץ:\n' + csv }]
+    } else {
+      const base64 = await fileToBase64(file)
+      const mimeType = getMimeType(file.name)
+      parts = [
+        { text: prompt },
+        { inline_data: { mime_type: mimeType, data: base64 } }
+      ]
+    }
+
     const body = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64 } }
-        ]
-      }],
+      contents: [{ parts }],
       generationConfig: { temperature: 0.1 }
     }
 
@@ -159,10 +166,22 @@ function fileToBase64(file) {
     r.readAsDataURL(file)
   })
 }
+function excelToCSV(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader()
+    r.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        res(XLSX.utils.sheet_to_csv(ws))
+      } catch (err) { rej(err) }
+    }
+    r.onerror = rej
+    r.readAsArrayBuffer(file)
+  })
+}
 function getMimeType(filename) {
-  if (filename.endsWith('.pdf'))  return 'application/pdf'
-  if (filename.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  if (filename.endsWith('.xls'))  return 'application/vnd.ms-excel'
-  if (filename.endsWith('.csv'))  return 'text/plain'
+  if (filename.endsWith('.pdf')) return 'application/pdf'
+  if (filename.endsWith('.csv')) return 'text/plain'
   return 'application/octet-stream'
 }
