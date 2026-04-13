@@ -221,6 +221,41 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .cat-bar-track { height: 6px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
 .cat-bar-fill { height: 100%; border-radius: 3px; transition: width .5s; }
 
+/* ===== UPDATE TOAST ===== */
+.update-toast {
+  position: fixed; 
+  bottom: -100px; 
+  left: 50%; 
+  transform: translateX(-50%);
+  background: var(--bg-elevated); 
+  border: 1px solid var(--accent);
+  padding: 1rem 1.5rem; 
+  border-radius: var(--radius-lg); 
+  z-index: 9999;
+  display: flex; 
+  align-items: center; 
+  gap: 1.5rem; 
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  transition: bottom 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.update-toast.show { 
+  bottom: 2rem; 
+}
+.update-toast button {
+  background: var(--accent); 
+  color: #fff; 
+  border: none; 
+  border-radius: var(--radius);
+  padding: 0.5rem 1rem; 
+  font-family: 'Heebo', sans-serif; 
+  font-weight: 600; 
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.update-toast button:hover {
+  background: #2563eb;
+}
+
 /* ===== MOBILE ===== */
 @media (max-width: 768px) {
   .navbar { display: flex; }
