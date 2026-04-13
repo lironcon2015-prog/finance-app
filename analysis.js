@@ -116,7 +116,10 @@ async function sendChat() {
 
   try {
     const data = await callGemini(apiKey, { contents:[{ parts:[{ text: context }] }], generationConfig:{ temperature:0.3 } })
-    const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || 'לא התקבלה תשובה'
+    const resParts = data.candidates?.[0]?.content?.parts || []
+    let answer = ''
+    for (const p of resParts) { if (!p.thought && p.text) { answer = p.text; break } }
+    if (!answer) answer = resParts[0]?.text || 'לא התקבלה תשובה'
     _chatMessages.push({ role: 'ai', text: answer })
   } catch(e) {
     _chatMessages.push({ role: 'ai', text: 'שגיאה: ' + e.message })

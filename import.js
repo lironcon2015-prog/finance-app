@@ -64,8 +64,17 @@ async function parseWithGemini(file, accountId, apiKey) {
 
     const data = await callGemini(apiKey, body)
 
-    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    // Gemini 2.5 models return thinking + response in separate parts
+    const parts2 = data.candidates?.[0]?.content?.parts || []
+    let text = ''
+    for (const p of parts2) {
+      if (!p.thought && p.text) { text = p.text; break }
+    }
+    if (!text) text = parts2[0]?.text || ''
+    console.log('Gemini raw response:', text.slice(0, 500))
+
     text = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim()
+    if (!text) throw new Error('תשובה ריקה מ-AI – נסה שוב')
     const parsed = tryParseJSON(text)
 
     // מיפוי קטגוריות
