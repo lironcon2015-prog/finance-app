@@ -1,4 +1,4 @@
-const APP_VERSION = '1.3.3'
+const APP_VERSION = '1.3.4'
 
 // ===== STORAGE =====
 const DB = {
@@ -215,25 +215,6 @@ function deleteFromModal() {
   renderTransactions()
 }
 
-// ===== VERSION CHECK =====
-async function checkForUpdates() {
-  try {
-    const res = await fetch('./version.json?t=' + Date.now())
-    const remote = await res.json()
-    const local = localStorage.getItem('appCache')
-    if (local && local !== remote.cache) {
-      localStorage.setItem('appCache', remote.cache)
-      if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.getRegistration()
-        if (reg?.waiting) reg.waiting.postMessage('SKIP_WAITING')
-      }
-      location.reload()
-      return
-    }
-    localStorage.setItem('appCache', remote.cache)
-  } catch {}
-}
-
 // ===== MIGRATIONS =====
 const CC_KEYWORDS = ['ויזה','visa','מסטרקארד','mastercard','ישראכרט','isracard','כאל','cal','אמריקן אקספרס','american express','amex','דיינרס','diners','לאומי קארד','לאומי ויזה','מקס','max','כרטיס אשראי','credit card','חיוב כרטיס']
 
@@ -255,7 +236,6 @@ function migrateCreditCardTransfers() {
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
-  checkForUpdates()
   initDefaultData()
   migrateCreditCardTransfers()
   navigate('dashboard')

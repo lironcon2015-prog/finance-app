@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'finance-v1.3.3'
+const CACHE_VERSION = 'finance-v1.3.4'
 const ASSETS = [
   './',
   './index.html',
@@ -29,12 +29,18 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.url.includes('generativelanguage.googleapis.com')) return
 
-  if (e.request.url.endsWith('version.json')) {
+  // network-first for HTML and version.json
+  const url = new URL(e.request.url)
+  if (url.pathname.endsWith('.html') || url.pathname.endsWith('version.json') || url.pathname.endsWith('/')) {
     e.respondWith(fetch(e.request).catch(() => caches.match(e.request)))
     return
   }
 
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)))
+  // strip query params for cache matching (cache-busting ?v=)
+  const cleanUrl = url.origin + url.pathname
+  e.respondWith(
+    caches.match(cleanUrl).then(r => r || caches.match(e.request)).then(r => r || fetch(e.request))
+  )
 })
 
 self.addEventListener('message', e => {

@@ -351,70 +351,25 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script src="app.js"></script>
-<script src="dashboard.js"></script>
-<script src="transactions.js"></script>
-<script src="import.js"></script>
-<script src="analysis.js"></script>
-<script src="settings.js"></script>
+<script>const _v = '1.3.4';</script>
+<script src="app.js?v=1.3.4"></script>
+<script src="dashboard.js?v=1.3.4"></script>
+<script src="transactions.js?v=1.3.4"></script>
+<script src="import.js?v=1.3.4"></script>
+<script src="analysis.js?v=1.3.4"></script>
+<script src="settings.js?v=1.3.4"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>
-  let newWorker;
-
-  function showUpdateToast() {
-    document.getElementById('updateToast').classList.add('show');
-  }
-
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').then(reg => {
-        
-        // מקרה 1: כבר יש עדכון שממתין ברקע מהפעלה קודמת
-        if (reg.waiting) {
-          newWorker = reg.waiting;
-          showUpdateToast();
-        }
-
-        // מקרה 2: עדכון חדש נמצא בזמן שהאפליקציה פתוחה
-        reg.addEventListener('updatefound', () => {
-          newWorker = reg.installing;
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              showUpdateToast();
-            }
-          });
-        });
-
-        // בדיקה יזומה מול הקובץ (עוקף מטמון של גיטהב)
-        fetch('./version.json?t=' + new Date().getTime())
-          .then(res => res.json())
-          .then(data => {
-            const currentVer = localStorage.getItem('appVer');
-            // אם זו פעם ראשונה, רק נשמור. אם יש שינוי, נכריח עדכון.
-            if (currentVer && currentVer !== data.version) {
-              reg.update(); 
-            }
-            localStorage.setItem('appVer', data.version);
-          }).catch(console.error);
-
+      navigator.serviceWorker.register('./sw.js?v=' + _v).then(reg => {
+        reg.update();
       });
-
-      // מרענן את העמוד כשה-SW החדש משתלט
-      let refreshing = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!refreshing) {
-          window.location.reload();
-          refreshing = true;
-        }
+        window.location.reload();
       });
     });
-  }
-
-  function applyUpdate() {
-    if (newWorker) {
-      newWorker.postMessage('SKIP_WAITING');
-    }
   }
 </script>
 </body>
