@@ -196,10 +196,30 @@ async function checkForUpdates() {
   } catch {}
 }
 
+// ===== MIGRATIONS =====
+const CC_KEYWORDS = ['ויזה','visa','מסטרקארד','mastercard','ישראכרט','isracard','כאל','cal','אמריקן אקספרס','american express','amex','דיינרס','diners','לאומי קארד','לאומי ויזה','מקס','max','כרטיס אשראי','credit card','חיוב כרטיס']
+
+function migrateCreditCardTransfers() {
+  if (localStorage.getItem('migration_cc_transfers')) return
+  const txs = getTransactions()
+  let changed = 0
+  txs.forEach(t => {
+    if (t.type !== 'expense' || t.amount > 0) return
+    const text = ((t.vendor || '') + ' ' + (t.description || '')).toLowerCase()
+    if (CC_KEYWORDS.some(kw => text.includes(kw))) {
+      t.type = 'transfer'
+      changed++
+    }
+  })
+  if (changed > 0) DB.set('finTransactions', txs)
+  localStorage.setItem('migration_cc_transfers', '1')
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
   checkForUpdates()
   initDefaultData()
+  migrateCreditCardTransfers()
   navigate('dashboard')
 
   const dz = document.getElementById('dropZone')

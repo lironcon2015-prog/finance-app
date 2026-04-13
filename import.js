@@ -51,6 +51,7 @@ async function parseWithGemini(file, accountId, apiKey) {
 - type: income | expense | transfer | refund
 - vendor: שם נקי ללא מספרים מיותרים
 - אל תכלול יתרות חשבון כעסקאות
+- חיובי כרטיס אשראי מרוכזים (כגון ויזה, מסטרקארד, ישראכרט, כאל, אמריקן אקספרס, דיינרס, לאומי קארד, מקס) – סמן כ-transfer ולא כ-expense, כי הפירוט מגיע מדף כרטיס האשראי
 - מיין לפי תאריך עולה`
 
     if (isExcel) {
