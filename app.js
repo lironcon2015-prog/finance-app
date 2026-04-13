@@ -86,6 +86,7 @@ function getApiKey()      { return localStorage.getItem('geminiApiKey') || '' }
 const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
 
 async function callGemini(apiKey, body) {
+  let lastError = ''
   for (const model of GEMINI_MODELS) {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -93,10 +94,13 @@ async function callGemini(apiKey, body) {
     )
     const data = await res.json()
     if (res.ok) return data
-    const isQuota = res.status === 429 || data.error?.status === 'RESOURCE_EXHAUSTED'
-    if (!isQuota) throw new Error(data.error?.message || 'שגיאת API')
+    lastError = data.error?.message || 'שגיאת API'
+    const status = data.error?.status || ''
+    const shouldFallback = res.status === 429 || res.status === 503
+      || status === 'RESOURCE_EXHAUSTED' || status === 'UNAVAILABLE'
+    if (!shouldFallback) throw new Error(lastError)
   }
-  throw new Error('כל המודלים חרגו מהמכסה – נסה שוב מאוחר יותר')
+  throw new Error('כל המודלים עמוסים כרגע – נסה שוב בעוד דקה')
 }
 
 // ===== EXPORT / IMPORT =====
