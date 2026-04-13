@@ -1,3 +1,5 @@
+const APP_VERSION = '1.3.3'
+
 // ===== STORAGE =====
 const DB = {
   get: (key, def = []) => { try { return JSON.parse(localStorage.getItem(key)) ?? def } catch { return def } },

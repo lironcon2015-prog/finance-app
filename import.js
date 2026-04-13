@@ -64,17 +64,27 @@ async function parseWithGemini(file, accountId, apiKey) {
 
     const data = await callGemini(apiKey, body)
 
+    const candidate = data.candidates?.[0]
+    console.log('Gemini finishReason:', candidate?.finishReason)
+    console.log('Gemini parts count:', candidate?.content?.parts?.length)
+
     // Gemini 2.5 models return thinking + response in separate parts
-    const parts2 = data.candidates?.[0]?.content?.parts || []
+    const allParts = candidate?.content?.parts || []
     let text = ''
-    for (const p of parts2) {
+    for (const p of allParts) {
       if (!p.thought && p.text) { text = p.text; break }
     }
-    if (!text) text = parts2[0]?.text || ''
-    console.log('Gemini raw response:', text.slice(0, 500))
+    // fallback: concatenate all non-thought text
+    if (!text) text = allParts.filter(p => !p.thought).map(p => p.text || '').join('')
+    // last resort: any text at all
+    if (!text) text = allParts.map(p => p.text || '').join('')
+    console.log('Gemini extracted text:', text.slice(0, 500))
 
     text = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim()
-    if (!text) throw new Error('תשובה ריקה מ-AI – נסה שוב')
+    if (!text) {
+      const reason = candidate?.finishReason || 'unknown'
+      throw new Error(`תשובה ריקה מ-AI (סיבה: ${reason}) – נסה שוב`)
+    }
     const parsed = tryParseJSON(text)
 
     // מיפוי קטגוריות
@@ -101,6 +111,7 @@ async function parseWithGemini(file, accountId, apiKey) {
     document.getElementById('importStep2').style.display = 'none'
     showImportReview()
   } catch (err) {
+    console.error('Import error:', err)
     document.getElementById('importStep2').style.display = 'none'
     document.getElementById('importStepError').style.display = 'block'
     document.getElementById('importErrMsg').textContent = err.message

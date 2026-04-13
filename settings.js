@@ -9,6 +9,7 @@ function renderSettings() {
   document.getElementById('promptInput').value = getPrompt()
   document.getElementById('promptMsg').textContent = ''
   renderImportBatches()
+  document.getElementById('appVersion').textContent = 'גרסה ' + APP_VERSION
 }
 
 function switchTab(name, btn) {
