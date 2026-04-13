@@ -207,6 +207,7 @@
       <button class="tab-btn" onclick="switchTab('categories',this)">קטגוריות</button>
       <button class="tab-btn" onclick="switchTab('api',this)">מפתח API</button>
       <button class="tab-btn" onclick="switchTab('prompt',this)">הנחיות AI</button>
+      <button class="tab-btn" onclick="switchTab('data',this)">ניהול נתונים</button>
       <button class="tab-btn" onclick="switchTab('backup',this)">גיבוי</button>
     </div>
 
@@ -287,6 +288,23 @@
           <button class="btn-ghost" onclick="resetPrompt()">איפוס לברירת מחדל</button>
           <span id="promptMsg" style="font-size:.85rem"></span>
         </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-data" style="display:none">
+      <div class="card">
+        <div class="card-title">ייבואים קודמים</div>
+        <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem">
+          כאן אפשר לראות את כל הקבצים שיובאו ולמחוק עסקאות לפי קובץ מקור.
+        </p>
+        <div id="importBatchList"></div>
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <div class="card-title" style="color:var(--expense)">מחיקת כל הנתונים</div>
+        <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem">
+          פעולה זו תמחק את כל העסקאות במערכת. לא ניתן לשחזר לאחר מחיקה.
+        </p>
+        <button class="btn-danger" onclick="deleteAllTransactions()">מחק את כל העסקאות</button>
       </div>
     </div>
 

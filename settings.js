@@ -8,6 +8,7 @@ function renderSettings() {
   document.getElementById('accCount').textContent = `${getAccounts().length} חשבונות`
   document.getElementById('promptInput').value = getPrompt()
   document.getElementById('promptMsg').textContent = ''
+  renderImportBatches()
 }
 
 function switchTab(name, btn) {
@@ -136,6 +137,58 @@ function resetPrompt() {
   document.getElementById('promptInput').value = DEFAULT_PROMPT
   document.getElementById('promptMsg').textContent = '✅ אופס לברירת מחדל'
   document.getElementById('promptMsg').style.color = 'var(--income)'
+}
+
+// ===== DATA MANAGEMENT =====
+function renderImportBatches() {
+  const txs = getTransactions()
+  const batches = {}
+  txs.forEach(t => {
+    const key = t.importBatch || '_manual'
+    if (!batches[key]) batches[key] = { file: t.sourceFile || 'לא ידוע', importedAt: t.importedAt || t.createdAt, count: 0, total: 0 }
+    batches[key].count++
+    batches[key].total += t.amount || 0
+  })
+
+  const list = Object.entries(batches).sort((a, b) => (b[1].importedAt || 0) - (a[1].importedAt || 0))
+  const container = document.getElementById('importBatchList')
+
+  if (list.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין עסקאות במערכת</p>'
+    return
+  }
+
+  container.innerHTML = list.map(([batchId, b]) => {
+    const date = b.importedAt ? new Date(b.importedAt).toLocaleString('he-IL') : '—'
+    return `
+    <div class="list-item" style="flex-wrap:wrap;gap:.5rem">
+      <div style="flex:1;min-width:200px">
+        <div class="list-item-name">${b.file}</div>
+        <div class="list-item-sub">${date} · ${b.count} עסקאות · ${formatCurrency(b.total)}</div>
+      </div>
+      <button class="btn-danger" style="font-size:.8rem;padding:.35rem .75rem" onclick="deleteImportBatch('${batchId}')">מחק ייבוא</button>
+    </div>`
+  }).join('')
+}
+
+function deleteImportBatch(batchId) {
+  const txs = getTransactions()
+  const batchTxs = txs.filter(t => (t.importBatch || '_manual') === batchId)
+  const file = batchTxs[0]?.sourceFile || 'לא ידוע'
+  if (!confirm(`למחוק ${batchTxs.length} עסקאות מהקובץ "${file}"?`)) return
+  DB.set('finTransactions', txs.filter(t => (t.importBatch || '_manual') !== batchId))
+  renderImportBatches()
+}
+
+function deleteAllTransactions() {
+  const count = getTransactions().length
+  if (count === 0) { alert('אין עסקאות למחיקה'); return }
+  if (!confirm(`האם למחוק ${count} עסקאות? פעולה זו בלתי הפיכה!`)) return
+  if (!confirm('האם אתה בטוח? מומלץ לגבות קודם.')) return
+  DB.set('finTransactions', [])
+  localStorage.removeItem('migration_cc_transfers')
+  renderImportBatches()
+  alert('כל העסקאות נמחקו')
 }
 
 // ===== API KEY =====

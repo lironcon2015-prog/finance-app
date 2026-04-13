@@ -1,4 +1,5 @@
 let _parsedTx = []
+let _importFileName = ''
 
 function initImport() {
   resetImport()
@@ -29,6 +30,7 @@ function handleFileSelect(input) {
   if (!accountId) { document.getElementById('importError').textContent = 'יש לבחור חשבון תחילה'; return }
   const apiKey = getApiKey()
   if (!apiKey) { document.getElementById('importError').textContent = 'חסר מפתח Gemini API – הזן בהגדרות'; return }
+  _importFileName = file.name
   parseWithGemini(file, accountId, apiKey)
 }
 
@@ -142,6 +144,8 @@ function _updateSaveBtn() {
 function saveImport() {
   const toSave = _parsedTx.filter(t => t._keep)
   const existing = getTransactions()
+  const batchId = genId()
+  const importedAt = Date.now()
   const newTx = toSave.map(t => ({
     id:          genId(),
     accountId:   t._accountId,
@@ -153,7 +157,10 @@ function saveImport() {
     categoryId:  t._categoryId || '',
     notes:       '',
     sourceHash:  t._hash,
-    createdAt:   Date.now(),
+    sourceFile:  _importFileName,
+    importBatch: batchId,
+    importedAt:  importedAt,
+    createdAt:   importedAt,
   }))
   DB.set('finTransactions', [...existing, ...newTx])
   document.getElementById('importStep3').style.display = 'none'
