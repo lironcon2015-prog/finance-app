@@ -6,6 +6,8 @@ function renderSettings() {
   document.getElementById('apiKeyMsg').textContent = key ? '✅ מפתח שמור' : ''
   document.getElementById('apiKeyMsg').style.color = 'var(--income)'
   document.getElementById('accCount').textContent = `${getAccounts().length} חשבונות`
+  document.getElementById('promptInput').value = getPrompt()
+  document.getElementById('promptMsg').textContent = ''
 }
 
 function switchTab(name, btn) {
@@ -118,6 +120,22 @@ function renderCategoryList() {
           </div>`).join('')}
       </div>
     </div>`).join('')
+}
+
+// ===== PROMPT =====
+function savePrompt() {
+  const val = document.getElementById('promptInput').value.trim()
+  if (!val) { alert('ההנחיות לא יכולות להיות ריקות'); return }
+  localStorage.setItem('geminiPrompt', val)
+  document.getElementById('promptMsg').textContent = '✅ ההנחיות נשמרו'
+  document.getElementById('promptMsg').style.color = 'var(--income)'
+}
+function resetPrompt() {
+  if (!confirm('לאפס את ההנחיות לברירת המחדל?')) return
+  localStorage.removeItem('geminiPrompt')
+  document.getElementById('promptInput').value = DEFAULT_PROMPT
+  document.getElementById('promptMsg').textContent = '✅ אופס לברירת מחדל'
+  document.getElementById('promptMsg').style.color = 'var(--income)'
 }
 
 // ===== API KEY =====

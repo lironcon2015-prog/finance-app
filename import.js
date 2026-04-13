@@ -41,18 +41,7 @@ async function parseWithGemini(file, accountId, apiKey) {
     const isExcel = /\.xlsx?$/i.test(file.name)
     let parts
 
-    const prompt = `אתה מנתח דוחות בנק ישראלים. נתח את הקובץ והחזר JSON בלבד – ללא טקסט נוסף, ללא backticks.
-
-מערך עסקאות בפורמט:
-[{"date":"YYYY-MM-DD","amount":250.00,"vendor":"שם הספק","description":"תיאור מלא","type":"expense"}]
-
-חוקים:
-- amount: חיובי להכנסה, שלילי להוצאה
-- type: income | expense | transfer | refund
-- vendor: שם נקי ללא מספרים מיותרים
-- אל תכלול יתרות חשבון כעסקאות
-- חיובי כרטיס אשראי מרוכזים (כגון ויזה, מסטרקארד, ישראכרט, כאל, אמריקן אקספרס, דיינרס, לאומי קארד, מקס) – סמן כ-transfer ולא כ-expense, כי הפירוט מגיע מדף כרטיס האשראי
-- מיין לפי תאריך עולה`
+    const prompt = getPrompt()
 
     if (isExcel) {
       const csv = await excelToCSV(file)
@@ -77,12 +66,22 @@ async function parseWithGemini(file, accountId, apiKey) {
     text = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim()
     const parsed = JSON.parse(text)
 
+    // מיפוי קטגוריות
+    const cats = getCategories()
+    const matchCategory = (t) => {
+      const catName = (t.category || '').trim()
+      if (!catName) return ''
+      const match = cats.find(c => c.name === catName || catName.includes(c.name) || c.name.includes(catName))
+      return match?.id || ''
+    }
+
     // בדוק כפילויות
     const existing = getTransactions()
     const existingHashes = new Set(existing.map(t => t.sourceHash))
 
     _parsedTx = parsed.map(t => ({
       ...t,
+      _categoryId: matchCategory(t),
       _hash: hashTx(t, accountId),
       _keep: true,
       _accountId: accountId,
@@ -111,18 +110,22 @@ function showImportReview() {
       <div class="chip-value" style="color:${c.color}">${c.value}</div>
     </div>`).join('')
 
-  const rows = _parsedTx.map((t, i) => `
+  const cats = getCategories()
+  const rows = _parsedTx.map((t, i) => {
+    const cat = cats.find(c => c.id === t._categoryId)
+    return `
     <tr style="opacity:${t._duplicate?'.4':'1'}">
       <td><input type="checkbox" ${t._keep&&!t._duplicate?'checked':''} ${t._duplicate?'disabled':''}
         onchange="_parsedTx[${i}]._keep=this.checked;_updateSaveBtn()" style="width:auto;cursor:pointer"></td>
       <td>${formatDate(t.date)}</td>
       <td style="font-weight:500">${t.vendor}</td>
       <td style="font-weight:700;color:${t.amount>0?'var(--income)':'var(--expense)'}">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
+      <td>${cat ? `<span style="font-size:.8rem">${cat.icon} ${cat.name}</span>` : '<span style="color:var(--text-muted);font-size:.8rem">—</span>'}</td>
       <td><span class="type-badge ${t.type==='income'?'type-income':'type-expense'}">${t._duplicate?'קיים':t.type==='income'?'הכנסה':t.type==='refund'?'החזר':t.type==='transfer'?'העברה':'הוצאה'}</span></td>
-    </tr>`).join('')
+    </tr>`}).join('')
 
   document.getElementById('importTable').innerHTML = `
-    <thead><tr><th>ייבא</th><th>תאריך</th><th>ספק</th><th>סכום</th><th>סוג</th></tr></thead>
+    <thead><tr><th>ייבא</th><th>תאריך</th><th>ספק</th><th>סכום</th><th>קטגוריה</th><th>סוג</th></tr></thead>
     <tbody>${rows}</tbody>`
 
   document.getElementById('importStep3').style.display = 'block'
@@ -147,7 +150,7 @@ function saveImport() {
     vendor:      t.vendor,
     description: t.description || '',
     type:        t.type,
-    categoryId:  '',
+    categoryId:  t._categoryId || '',
     notes:       '',
     sourceHash:  t._hash,
     createdAt:   Date.now(),
