@@ -1,6 +1,7 @@
 function renderSettings() {
   renderAccountList()
   renderCategoryList()
+  renderBudgetSettings()
   const key = getApiKey()
   document.getElementById('apiKeyInput').value = key
   document.getElementById('apiKeyMsg').textContent = key ? '✅ מפתח שמור' : ''
@@ -25,24 +26,54 @@ function toggleAccForm() {
   f.style.display = f.style.display === 'none' ? 'block' : 'none'
 }
 
+function _onAccTypeChange() {
+  const t = document.getElementById('accType').value
+  document.getElementById('accPatternsRow').style.display = t === 'credit_card' ? 'block' : 'none'
+}
+
 function saveAccount() {
   const name = document.getElementById('accName').value.trim()
   if (!name) { alert('שם החשבון חובה'); return }
   const accounts = getAccounts()
+  const type = document.getElementById('accType').value
+  const patternsRaw = document.getElementById('accPatterns')?.value || ''
+  const patterns = type === 'credit_card'
+    ? patternsRaw.split('\n').map(s => s.trim()).filter(Boolean)
+    : undefined
   accounts.push({
     id:             genId(),
     name,
-    type:           document.getElementById('accType').value,
+    type,
     institution:    document.getElementById('accInstitution').value.trim(),
     openingBalance: parseFloat(document.getElementById('accBalance').value) || 0,
     currency:       'ILS',
+    paymentVendorPatterns: patterns,
     createdAt:      Date.now(),
   })
   DB.set('finAccounts', accounts)
   document.getElementById('accName').value = ''
   document.getElementById('accInstitution').value = ''
   document.getElementById('accBalance').value = '0'
+  if (document.getElementById('accPatterns')) document.getElementById('accPatterns').value = ''
   toggleAccForm()
+  renderSettings()
+}
+
+function editAccountPatterns(id) {
+  const accs = getAccounts()
+  const acc = accs.find(a => a.id === id)
+  if (!acc) return
+  const current = (acc.paymentVendorPatterns || []).join('\n')
+  const v = prompt(`דפוסי זיהוי לחשבון "${acc.name}":\n(שורה לכל ביטוי - משמש לזיהוי חיובי האשראי בדפי הבנק)`, current)
+  if (v === null) return
+  acc.paymentVendorPatterns = v.split('\n').map(s => s.trim()).filter(Boolean)
+  DB.set('finAccounts', accs)
+  renderSettings()
+}
+
+function runAutoLinkCcPayments() {
+  const n = autoLinkCcPayments()
+  alert(n === 0 ? 'לא נמצאו חיובי אשראי להתאמה חדשה' : `זוהו וסומנו ${n} חיובי אשראי כהעברות`)
   renderSettings()
 }
 
@@ -58,14 +89,24 @@ function renderAccountList() {
   const TYPE = { checking:'עו"ש', savings:'חיסכון', credit_card:'כרטיס אשראי', cash:'מזומן' }
   document.getElementById('accList').innerHTML = accounts.length === 0
     ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין חשבונות. לחץ "חשבון חדש" להוסיף.</p>'
-    : accounts.map(a => `
-      <div class="list-item">
-        <div>
-          <div class="list-item-name">${a.name}</div>
-          <div class="list-item-sub">${TYPE[a.type]||a.type}${a.institution?' · '+a.institution:''} · ₪</div>
-        </div>
-        <button class="list-item-del" onclick="deleteAccount('${a.id}')">🗑️</button>
-      </div>`).join('')
+    : accounts.map(a => {
+        const bal = getAccountBalance(a.id)
+        const balColor = bal >= 0 ? 'var(--income)' : 'var(--expense)'
+        const patternsBtn = a.type === 'credit_card'
+          ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .7rem" onclick="editAccountPatterns('${a.id}')">דפוסי זיהוי (${(a.paymentVendorPatterns||[]).length})</button>`
+          : ''
+        return `
+        <div class="list-item">
+          <div style="flex:1">
+            <div class="list-item-name">${a.name}</div>
+            <div class="list-item-sub">${TYPE[a.type]||a.type}${a.institution?' · '+a.institution:''} · יתרה: <span style="color:${balColor}">${formatCurrency(bal)}</span></div>
+          </div>
+          <div style="display:flex;gap:.4rem;align-items:center">
+            ${patternsBtn}
+            <button class="list-item-del" onclick="deleteAccount('${a.id}')">🗑️</button>
+          </div>
+        </div>`
+      }).join('')
 }
 
 // ===== CATEGORIES =====

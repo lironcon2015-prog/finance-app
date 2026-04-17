@@ -100,13 +100,27 @@ async function parseWithGemini(file, accountId, apiKey) {
     const existing = getTransactions()
     const existingHashes = new Set(existing.map(t => t.sourceHash))
 
-    _parsedTx = parsed.map(t => ({
-      ...t,
-      _categoryId: matchCategory(t),
-      _hash: hashTx(t, accountId),
-      _keep: true,
-      _accountId: accountId,
-    })).map(t => ({ ...t, _duplicate: existingHashes.has(t._hash), _keep: !existingHashes.has(t._hash) }))
+    const importAccount = getAccounts().find(a => a.id === accountId)
+    const isCcAccount = importAccount?.type === 'credit_card'
+
+    _parsedTx = parsed.map(t => {
+      // Auto-detect CC payment only when importing NON-credit-card account
+      let ccMatch = null
+      if (!isCcAccount && t.amount < 0) {
+        ccMatch = findMatchingCcAccount(t.vendor, t.description)
+      }
+      return {
+        ...t,
+        _categoryId: matchCategory(t),
+        _hash: hashTx(t, accountId),
+        _keep: true,
+        _accountId: accountId,
+        _ccMatchAccountId: ccMatch?.id || '',
+        _ccMatchAccountName: ccMatch?.name || '',
+        // Override type suggestion if matched
+        type: ccMatch ? 'transfer' : t.type,
+      }
+    }).map(t => ({ ...t, _duplicate: existingHashes.has(t._hash), _keep: !existingHashes.has(t._hash) }))
 
     document.getElementById('importStep2').style.display = 'none'
     showImportReview()
@@ -133,17 +147,20 @@ function showImportReview() {
     </div>`).join('')
 
   const cats = getCategories()
+  const typeLabel = tp => ({ income:'הכנסה', expense:'הוצאה', transfer:'העברה', refund:'החזר' }[tp] || tp)
+  const typeCls = tp => ({ income:'type-income', expense:'type-expense', transfer:'type-transfer', refund:'type-refund' }[tp] || 'type-expense')
   const rows = _parsedTx.map((t, i) => {
     const cat = cats.find(c => c.id === t._categoryId)
+    const ccNote = t._ccMatchAccountName ? `<div style="font-size:.72rem;color:var(--accent);margin-top:.15rem">→ ${t._ccMatchAccountName}</div>` : ''
     return `
     <tr style="opacity:${t._duplicate?'.4':'1'}">
       <td><input type="checkbox" ${t._keep&&!t._duplicate?'checked':''} ${t._duplicate?'disabled':''}
         onchange="_parsedTx[${i}]._keep=this.checked;_updateSaveBtn()" style="width:auto;cursor:pointer"></td>
       <td>${formatDate(t.date)}</td>
-      <td style="font-weight:500">${t.vendor}</td>
+      <td style="font-weight:500">${t.vendor}${ccNote}</td>
       <td style="font-weight:700;color:${t.amount>0?'var(--income)':'var(--expense)'}">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
       <td>${cat ? `<span style="font-size:.8rem">${cat.icon} ${cat.name}</span>` : '<span style="color:var(--text-muted);font-size:.8rem">—</span>'}</td>
-      <td><span class="type-badge ${t.type==='income'?'type-income':'type-expense'}">${t._duplicate?'קיים':t.type==='income'?'הכנסה':t.type==='refund'?'החזר':t.type==='transfer'?'העברה':'הוצאה'}</span></td>
+      <td><span class="type-badge ${typeCls(t.type)}">${t._duplicate?'קיים':typeLabel(t.type)}</span></td>
     </tr>`}).join('')
 
   document.getElementById('importTable').innerHTML = `
@@ -181,6 +198,8 @@ function saveImport() {
     importBatch: batchId,
     importedAt:  importedAt,
     createdAt:   importedAt,
+    transferAccountId: t._ccMatchAccountId || undefined,
+    ccPaymentForAccountId: t._ccMatchAccountId || undefined,
   }))
   DB.set('finTransactions', [...existing, ...newTx])
   document.getElementById('importStep3').style.display = 'none'

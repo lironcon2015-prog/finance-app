@@ -4,6 +4,7 @@ const TX_PAGE_SIZE = 40
 function renderTransactions() {
   _txPage = 0
   _buildTxMonthFilter()
+  _buildTxAccountFilter()
   _drawTxTable()
 }
 
@@ -16,14 +17,28 @@ function _buildTxMonthFilter() {
     months.map(m => `<option value="${m}" ${m===cur?'selected':''}>${m}</option>`).join('')
 }
 
+function _buildTxAccountFilter() {
+  const accs = getAccounts()
+  const sel = document.getElementById('txAccountFilter')
+  if (!sel) return
+  const cur = sel.value
+  sel.innerHTML = '<option value="">כל החשבונות</option>' +
+    accs.map(a => `<option value="${a.id}" ${a.id===cur?'selected':''}>${a.name}</option>`).join('')
+}
+
 function _getFiltered() {
   const search = document.getElementById('txSearch')?.value.toLowerCase() || ''
   const type   = document.getElementById('txTypeFilter')?.value || 'all'
   const month  = document.getElementById('txMonthFilter')?.value || ''
+  const account = document.getElementById('txAccountFilter')?.value || ''
   return getTransactions()
     .filter(t => {
-      if (type !== 'all' && t.type !== type) return false
+      if (type !== 'all') {
+        if (type === 'uncategorized') { if (t.categoryId) return false }
+        else if (t.type !== type) return false
+      }
       if (month && !t.date?.startsWith(month)) return false
+      if (account && t.accountId !== account) return false
       if (search && !((t.vendor||'')+(t.description||'')).toLowerCase().includes(search)) return false
       return true
     })
@@ -32,40 +47,72 @@ function _getFiltered() {
 
 function _drawTxTable() {
   const filtered = _getFiltered()
-  const totalInc = filtered.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0)
-  const totalExp = filtered.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0)
+  const totalInc = sumIncome(filtered)
+  const totalExp = sumExpenses(filtered)
   const net = totalInc - totalExp
+
+  const accountId = document.getElementById('txAccountFilter')?.value || ''
+  const showRunningBalance = !!accountId
+  let runningBalanceInfo = ''
+  if (showRunningBalance) {
+    const acc = getAccounts().find(a => a.id === accountId)
+    const bal = getAccountBalance(accountId)
+    runningBalanceInfo = `<span style="color:${bal>=0?'var(--income)':'var(--expense)'};font-weight:600">יתרה: ${formatCurrency(bal)}</span>`
+  }
 
   document.getElementById('txSummary').innerHTML = `
     <span>${filtered.length} עסקאות</span>
     <span class="income">+${formatCurrency(totalInc)}</span>
     <span class="expense">-${formatCurrency(totalExp)}</span>
-    <span class="${net>=0?'net-pos':'net-neg'}">נטו: ${formatCurrency(net)}</span>`
+    <span class="${net>=0?'net-pos':'net-neg'}">נטו: ${formatCurrency(net)}</span>
+    ${runningBalanceInfo}`
 
   const page = filtered.slice(_txPage * TX_PAGE_SIZE, (_txPage+1) * TX_PAGE_SIZE)
   const totalPages = Math.ceil(filtered.length / TX_PAGE_SIZE)
 
   const TYPE_LABEL = { income:'הכנסה', expense:'הוצאה', transfer:'העברה', refund:'החזר' }
+  const TYPE_CLS = { income:'type-income', expense:'type-expense', transfer:'type-transfer', refund:'type-refund' }
+
+  // Compute running balance (only when single account filtered)
+  // We need to compute balance at each row. Since table is date desc, we:
+  // - get balance up to & including each row's date (but only for transactions on/before that row)
+  let rowBalances = {}
+  if (showRunningBalance) {
+    const accTxs = getTransactions().filter(t => t.accountId === accountId)
+      .sort((a,b) => (a.date||'').localeCompare(b.date||''))
+    const acc = getAccounts().find(a => a.id === accountId)
+    let run = acc?.openingBalance || 0
+    for (const t of accTxs) {
+      run += t.amount
+      rowBalances[t.id] = run
+    }
+  }
 
   document.getElementById('txTable').innerHTML = `
     <table class="data-table">
       <thead><tr>
         <th>תאריך</th><th>ספק</th><th>קטגוריה</th>
-        <th>סכום</th><th>סוג</th><th>הערות</th><th></th>
+        <th>סכום</th><th>סוג</th>
+        ${showRunningBalance ? '<th>יתרה</th>' : ''}
+        <th>הערות</th><th></th>
       </tr></thead>
       <tbody>
-      ${page.length === 0 ? `<tr><td colspan="7" style="text-align:center;padding:3rem;color:var(--text-muted)">אין עסקאות</td></tr>` :
+      ${page.length === 0 ? `<tr><td colspan="${showRunningBalance?8:7}" style="text-align:center;padding:3rem;color:var(--text-muted)">אין עסקאות</td></tr>` :
         page.map(tx => {
           const cat = getCategoryById(tx.categoryId)
           const catBadge = cat
             ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>`
             : `<span style="color:var(--text-muted);font-size:.8rem">לא מסווג</span>`
-          return `<tr>
+          const isNonCounted = tx.type === 'transfer' || tx.type === 'refund'
+          const amountCls = isNonCounted ? 'amount-muted' : (tx.amount>0?'amount-inc':'amount-exp')
+          const balCell = showRunningBalance ? `<td style="font-weight:500">${formatCurrency(rowBalances[tx.id] ?? 0)}</td>` : ''
+          return `<tr ${isNonCounted?'class="tx-noncounted"':''}>
             <td>${formatDate(tx.date)}</td>
             <td><div style="font-weight:500">${tx.vendor||'—'}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
             <td>${catBadge}</td>
-            <td class="${tx.amount>0?'amount-inc':'amount-exp'}">${tx.amount>0?'+':''}${formatCurrency(tx.amount)}</td>
-            <td><span class="type-badge ${tx.type==='income'?'type-income':'type-expense'}">${TYPE_LABEL[tx.type]||tx.type}</span></td>
+            <td class="${amountCls}">${tx.amount>0?'+':''}${formatCurrency(tx.amount)}</td>
+            <td><span class="type-badge ${TYPE_CLS[tx.type]||'type-expense'}">${TYPE_LABEL[tx.type]||tx.type}</span></td>
+            ${balCell}
             <td style="color:var(--text-muted);font-size:.8rem">${tx.notes||''}</td>
             <td><button class="edit-btn" onclick="openEditModal('${tx.id}')">✏️</button></td>
           </tr>`

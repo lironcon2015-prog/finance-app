@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <!-- v1.3.4 -->
+  <!-- v1.4.0 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>כספים – ניהול פיננסי</title>
   <link rel="stylesheet" href="style.css">
@@ -47,7 +47,11 @@
     </a>
     <a class="nav-link" data-screen="analysis" onclick="navigate('analysis')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-      ניתוח P&amp;L
+      ניתוח ותזרים
+    </a>
+    <a class="nav-link" data-screen="recurring" onclick="navigate('recurring')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/><path d="M20.49 15A9 9 0 015.64 18.36L1 14"/></svg>
+      הוצאות קבועות
     </a>
     <a class="nav-link" data-screen="settings" onclick="navigate('settings')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -62,18 +66,33 @@
   <section class="screen" id="screen-dashboard">
     <div class="page-header">
       <h1 class="page-title">לוח בקרה</h1>
-      <span class="page-subtitle" id="dashMonth"></span>
+      <span class="page-subtitle" id="dashPeriodLabel"></span>
     </div>
+    <div id="dashPeriodSelector"></div>
     <div class="stat-grid" id="dashStats"></div>
     <div class="two-col">
       <div class="card">
-        <div class="card-title">הכנסות מול הוצאות – 6 חודשים</div>
+        <div class="card-title" id="monthlyChartTitle">הכנסות מול הוצאות</div>
         <div style="height:260px"><canvas id="monthlyChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">יתרות חשבונות</div>
+        <div id="dashAccounts"></div>
+      </div>
+    </div>
+    <div class="two-col" style="margin-top:1.25rem">
+      <div class="card">
+        <div class="card-title">תקציב מול בפועל – החודש</div>
+        <div id="dashBudget"></div>
       </div>
       <div class="card">
         <div class="card-title">פירוט לפי קטגוריה</div>
         <div id="catBreakdown"></div>
       </div>
+    </div>
+    <div class="card" style="margin-top:1.25rem">
+      <div class="card-title">🔮 תחזית תזרים</div>
+      <div id="dashForecast"></div>
     </div>
     <div class="card" style="margin-top:1.25rem">
       <div class="card-title">עסקאות אחרונות</div>
@@ -83,8 +102,9 @@
 
   <!-- TRANSACTIONS -->
   <section class="screen" id="screen-transactions">
-    <div class="page-header">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.75rem">
       <h1 class="page-title">עסקאות</h1>
+      <button class="btn-primary" onclick="addManualTransaction()">+ עסקה חדשה</button>
     </div>
     <div class="card">
       <div class="filters-bar">
@@ -99,7 +119,10 @@
           <option value="income">הכנסות</option>
           <option value="expense">הוצאות</option>
           <option value="transfer">העברות</option>
+          <option value="refund">החזרים</option>
+          <option value="uncategorized">ללא קטגוריה</option>
         </select>
+        <select id="txAccountFilter" onchange="_txPage=0;_drawTxTable()"></select>
         <select id="txMonthFilter" onchange="_txPage=0;_drawTxTable()"></select>
       </div>
       <div class="tx-summary" id="txSummary"></div>
@@ -168,13 +191,17 @@
   <!-- ANALYSIS -->
   <section class="screen" id="screen-analysis">
     <div class="page-header">
-      <h1 class="page-title">ניתוח P&amp;L</h1>
+      <h1 class="page-title">ניתוח ותזרים</h1>
+      <span class="page-subtitle" id="analysisPeriodLabel"></span>
     </div>
-    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.25rem">
-      <label class="form-label" style="margin:0">תקופה:</label>
-      <select id="analysisPeriod" style="width:auto" onchange="_drawAnalysis()"></select>
-    </div>
+    <div id="analysisPeriodSelector"></div>
     <div class="stat-grid" id="pnlStats"></div>
+
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">מגמת הכנסות והוצאות</div>
+      <div style="height:280px"><canvas id="trendChart"></canvas></div>
+    </div>
+
     <div class="two-col">
       <div class="card">
         <div class="card-title">הוצאות לפי קטגוריה</div>
@@ -185,6 +212,29 @@
         <div id="incomeBreakdown"></div>
       </div>
     </div>
+
+    <div class="card" style="margin-top:1.25rem">
+      <div class="card-title">דוח תזרים מזומנים</div>
+      <div id="cashFlowStatement"></div>
+    </div>
+
+    <div class="two-col" style="margin-top:1.25rem">
+      <div class="card">
+        <div class="card-title">השוואה לשנה שעברה (YoY)</div>
+        <div id="yoyTable"></div>
+        <div style="height:200px;margin-top:1rem"><canvas id="yoyChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">שווי נטו לאורך זמן</div>
+        <div style="height:280px"><canvas id="netWorthChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1.25rem">
+      <div class="card-title">Top 10 ספקים בתקופה</div>
+      <div id="topVendors"></div>
+    </div>
+
     <div class="card" style="margin-top:1.25rem">
       <div class="card-title">🤖 יועץ AI</div>
       <div class="chat-messages" id="chatMessages">
@@ -194,6 +244,17 @@
         <input id="chatInput" placeholder="שאל שאלה..." onkeydown="if(event.key==='Enter')sendChat()">
         <button class="btn-primary" onclick="sendChat()">שלח</button>
       </div>
+    </div>
+  </section>
+
+  <!-- RECURRING -->
+  <section class="screen" id="screen-recurring">
+    <div class="page-header">
+      <h1 class="page-title">הוצאות קבועות</h1>
+      <span class="page-subtitle">זוהה אוטומטית לפי דפוסי עסקאות חוזרות</span>
+    </div>
+    <div class="card">
+      <div id="recurringList"></div>
     </div>
   </section>
 
@@ -207,6 +268,7 @@
     <div class="tabs-bar">
       <button class="tab-btn active" onclick="switchTab('accounts',this)">חשבונות <span id="accCount"></span></button>
       <button class="tab-btn" onclick="switchTab('categories',this)">קטגוריות</button>
+      <button class="tab-btn" onclick="switchTab('budget',this)">תקציב</button>
       <button class="tab-btn" onclick="switchTab('api',this)">מפתח API</button>
       <button class="tab-btn" onclick="switchTab('prompt',this)">הנחיות AI</button>
       <button class="tab-btn" onclick="switchTab('data',this)">ניהול נתונים</button>
@@ -221,7 +283,7 @@
         <div class="form-grid">
           <div><label class="form-label">שם החשבון *</label><input id="accName" placeholder='לדוגמה: עו"ש הפועלים'></div>
           <div><label class="form-label">סוג</label>
-            <select id="accType">
+            <select id="accType" onchange="_onAccTypeChange()">
               <option value="checking">עו"ש</option>
               <option value="savings">חיסכון</option>
               <option value="credit_card">כרטיס אשראי</option>
@@ -231,12 +293,27 @@
           <div><label class="form-label">בנק / מוסד</label><input id="accInstitution" placeholder="לדוגמה: בנק הפועלים"></div>
           <div><label class="form-label">יתרה פתיחה (₪)</label><input id="accBalance" type="number" value="0"></div>
         </div>
+        <div id="accPatternsRow" style="display:none;margin-top:1rem">
+          <label class="form-label">דפוסי זיהוי בבנק (שורה לכל ביטוי)</label>
+          <textarea id="accPatterns" rows="3" placeholder='לדוגמה:&#10;ויזה כאל&#10;כאל CAL&#10;chargeויזה'></textarea>
+          <div style="font-size:.75rem;color:var(--text-muted);margin-top:.3rem">ביטויים אלה ישמשו לזיהוי חיובי האשראי בדפי הבנק וסימון אוטומטי כ"העברה"</div>
+        </div>
         <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem">
           <button class="btn-ghost" onclick="toggleAccForm()">ביטול</button>
           <button class="btn-primary" onclick="saveAccount()">שמור</button>
         </div>
       </div>
       <div id="accList"></div>
+      <div style="margin-top:1rem">
+        <button class="btn-ghost" onclick="runAutoLinkCcPayments()">🔍 סרוק עסקאות ובצע קישור אוטומטי לחשבונות אשראי</button>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-budget" style="display:none">
+      <div class="card">
+        <div class="card-title">תקציב חודשי לפי קטגוריה</div>
+        <div id="budgetList"></div>
+      </div>
     </div>
 
     <div class="tab-panel" id="tab-categories" style="display:none">
@@ -332,12 +409,12 @@
 <div class="modal-overlay" id="editModal">
   <div class="modal-box">
     <div class="modal-header">
-      <h3>עריכת עסקה</h3>
+      <h3 id="editModalTitle">עריכת עסקה</h3>
       <button class="modal-close" onclick="closeEditModal()">✕</button>
     </div>
     <div id="editModalBody"></div>
     <div style="display:flex;gap:.75rem;justify-content:space-between;margin-top:1.25rem">
-      <button class="btn-danger" onclick="deleteFromModal()">מחק</button>
+      <button class="btn-danger" id="editDeleteBtn" onclick="deleteFromModal()">מחק</button>
       <div style="display:flex;gap:.75rem">
         <button class="btn-ghost" onclick="closeEditModal()">ביטול</button>
         <button class="btn-primary" onclick="saveEditModal()">שמור</button>
@@ -352,13 +429,16 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.3.4';</script>
-<script src="app.js?v=1.3.4"></script>
-<script src="dashboard.js?v=1.3.4"></script>
-<script src="transactions.js?v=1.3.4"></script>
-<script src="import.js?v=1.3.4"></script>
-<script src="analysis.js?v=1.3.4"></script>
-<script src="settings.js?v=1.3.4"></script>
+<script>const _v = '1.4.0';</script>
+<script src="app.js?v=1.4.0"></script>
+<script src="core.js?v=1.4.0"></script>
+<script src="budget.js?v=1.4.0"></script>
+<script src="recurring.js?v=1.4.0"></script>
+<script src="dashboard.js?v=1.4.0"></script>
+<script src="transactions.js?v=1.4.0"></script>
+<script src="import.js?v=1.4.0"></script>
+<script src="analysis.js?v=1.4.0"></script>
+<script src="settings.js?v=1.4.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

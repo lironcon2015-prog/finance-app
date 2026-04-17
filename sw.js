@@ -1,9 +1,12 @@
-const CACHE_VERSION = 'finance-v1.3.4'
+const CACHE_VERSION = 'finance-v1.4.0'
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
+  './core.js',
+  './budget.js',
+  './recurring.js',
   './dashboard.js',
   './transactions.js',
   './import.js',
