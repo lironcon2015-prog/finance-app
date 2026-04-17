@@ -320,6 +320,16 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .cf-total { background: var(--accent-dim); margin-top: .5rem; border-radius: 8px; padding: .85rem .85rem; font-weight: 700; font-size: 1rem; border-bottom: none; }
 .cf-savings span:last-child { color: var(--text-secondary); font-weight: 600; }
 
+/* ===== AUTO-CATEGORIZE MODAL ===== */
+.autocat-summary { color: var(--text-secondary); font-size: .9rem; margin-bottom: 1rem; }
+.autocat-list { display: flex; flex-direction: column; gap: .7rem; max-height: 55vh; overflow-y: auto; padding-inline-end: .25rem; }
+.autocat-row { background: var(--bg-elevated); border-radius: 8px; padding: .75rem .85rem; }
+.autocat-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .3rem; }
+.autocat-vendor { font-weight: 600; }
+.autocat-count { font-size: .78rem; color: var(--text-muted); }
+.autocat-candidates { font-size: .78rem; color: var(--text-muted); margin-bottom: .5rem; }
+.autocat-select { width: 100%; }
+
 /* ===== NON-LIQUID FLOW CARD ===== */
 .account-group-label { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin: 1rem 0 .35rem; padding-top: .5rem; border-top: 1px dashed var(--border); }
 .nonliquid-flow-list { display: flex; flex-direction: column; gap: .4rem; }

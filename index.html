@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <!-- v1.5.0 -->
+  <!-- v1.6.0 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>כספים – ניהול פיננסי</title>
   <link rel="stylesheet" href="style.css">
@@ -107,7 +107,10 @@
   <section class="screen" id="screen-transactions">
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.75rem">
       <h1 class="page-title">עסקאות</h1>
-      <button class="btn-primary" onclick="addManualTransaction()">+ עסקה חדשה</button>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn-ghost" onclick="runAutoCategorize()">🔁 סווג אוטומטית</button>
+        <button class="btn-primary" onclick="addManualTransaction()">+ עסקה חדשה</button>
+      </div>
     </div>
     <div class="card">
       <div class="filters-bar">
@@ -432,22 +435,38 @@
   </div>
 </div>
 
+<!-- Auto-Categorize Ambiguous Modal -->
+<div class="modal-overlay" id="autocatModal">
+  <div class="modal-box" style="max-width:640px">
+    <div class="modal-header">
+      <h3>סיווג אוטומטי — דרושה החלטה</h3>
+      <button class="modal-close" onclick="closeAutocatModal()">✕</button>
+    </div>
+    <div id="autocatModalBody"></div>
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem">
+      <button class="btn-ghost" onclick="closeAutocatModal()">ביטול</button>
+      <button class="btn-primary" onclick="applyAutocatChoices()">החל</button>
+    </div>
+  </div>
+</div>
+
 <!-- Update Toast -->
 <div id="updateToast" class="update-toast">
   <span>✨ גרסה חדשה זמינה!</span>
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.5.0';</script>
-<script src="app.js?v=1.5.0"></script>
-<script src="core.js?v=1.5.0"></script>
-<script src="budget.js?v=1.5.0"></script>
-<script src="recurring.js?v=1.5.0"></script>
-<script src="dashboard.js?v=1.5.0"></script>
-<script src="transactions.js?v=1.5.0"></script>
-<script src="import.js?v=1.5.0"></script>
-<script src="analysis.js?v=1.5.0"></script>
-<script src="settings.js?v=1.5.0"></script>
+<script>const _v = '1.6.0';</script>
+<script src="app.js?v=1.6.0"></script>
+<script src="core.js?v=1.6.0"></script>
+<script src="budget.js?v=1.6.0"></script>
+<script src="recurring.js?v=1.6.0"></script>
+<script src="dashboard.js?v=1.6.0"></script>
+<script src="transactions.js?v=1.6.0"></script>
+<script src="import.js?v=1.6.0"></script>
+<script src="analysis.js?v=1.6.0"></script>
+<script src="settings.js?v=1.6.0"></script>
+<script src="autocat.js?v=1.6.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

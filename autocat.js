@@ -1,0 +1,160 @@
+// ===== AUTO-CATEGORIZE =====
+// Deterministic propagation of categories: learns vendor→category rules from
+// already-categorized transactions, applies to uncategorized ones.
+
+const AUTOCAT_CONFIDENCE_THRESHOLD = 0.8  // ≥80% of sightings agree → apply
+
+function normalizeVendorForAutocat(v) {
+  return (v || '')
+    .toLowerCase()
+    .replace(/\d+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function _buildVendorCategoryRules(txs) {
+  const rules = {}
+  for (const t of txs) {
+    if (!t.categoryId || !t.vendor) continue
+    const k = normalizeVendorForAutocat(t.vendor)
+    if (!k) continue
+    if (!rules[k]) rules[k] = {}
+    rules[k][t.categoryId] = (rules[k][t.categoryId] || 0) + 1
+  }
+  return rules
+}
+
+// Returns { autoApplied:[{txId,catId,vendor}], ambiguous:[{vendor,key,txIds,candidates}] }
+function computeAutoCategorizePlan() {
+  const all = getTransactions()
+  const rules = _buildVendorCategoryRules(all)
+
+  const autoApplied = []
+  const ambiguous = {}
+
+  for (const t of all) {
+    if (t.categoryId || !t.vendor) continue
+    // Skip transfers/refunds that are non-counted — they usually don't need categories
+    if (t.type === 'transfer') continue
+    const k = normalizeVendorForAutocat(t.vendor)
+    if (!k || !rules[k]) continue
+    const entries = Object.entries(rules[k]).sort((a, b) => b[1] - a[1])
+    const total = entries.reduce((s, e) => s + e[1], 0)
+    const [topCat, topCount] = entries[0]
+    if (entries.length === 1 || topCount / total >= AUTOCAT_CONFIDENCE_THRESHOLD) {
+      autoApplied.push({ txId: t.id, catId: topCat, vendor: t.vendor })
+    } else {
+      if (!ambiguous[k]) ambiguous[k] = { vendor: t.vendor, key: k, txIds: [], candidates: entries }
+      ambiguous[k].txIds.push(t.id)
+    }
+  }
+  return { autoApplied, ambiguous: Object.values(ambiguous) }
+}
+
+function applyAutoCategorizeConfident(plan) {
+  if (plan.autoApplied.length === 0) return 0
+  const map = new Map(plan.autoApplied.map(a => [a.txId, a.catId]))
+  const txs = getTransactions()
+  let n = 0
+  txs.forEach(t => {
+    if (map.has(t.id)) { t.categoryId = map.get(t.id); n++ }
+  })
+  DB.set('finTransactions', txs)
+  return n
+}
+
+function applyCategoryToTxIds(txIds, catId) {
+  if (!catId) return 0
+  const set = new Set(txIds)
+  const txs = getTransactions()
+  let n = 0
+  txs.forEach(t => {
+    if (set.has(t.id)) { t.categoryId = catId; n++ }
+  })
+  DB.set('finTransactions', txs)
+  return n
+}
+
+// ===== UI =====
+let _autocatPlan = null
+
+function runAutoCategorize() {
+  _autocatPlan = computeAutoCategorizePlan()
+  const { autoApplied, ambiguous } = _autocatPlan
+  const applied = applyAutoCategorizeConfident(_autocatPlan)
+
+  if (autoApplied.length === 0 && ambiguous.length === 0) {
+    alert('אין עסקאות חדשות לסיווג אוטומטי. ודא שיש עסקאות ללא קטגוריה עם ספק שכבר סווג בעבר.')
+    if (typeof renderTransactions === 'function') renderTransactions()
+    return
+  }
+
+  if (ambiguous.length === 0) {
+    alert(`סווגו אוטומטית ${applied} עסקאות.`)
+    if (typeof renderTransactions === 'function') renderTransactions()
+    return
+  }
+
+  _showAutocatAmbiguousModal(applied, ambiguous)
+}
+
+function _showAutocatAmbiguousModal(appliedCount, ambiguous) {
+  const cats = getCategories()
+  const catOpts = ['expense', 'income'].map(type => {
+    const list = cats.filter(c => c.type === type)
+    if (!list.length) return ''
+    const label = type === 'expense' ? 'הוצאה' : 'הכנסה'
+    return `<optgroup label="${label}">${list.map(c => `<option value="${c.id}">${c.icon || ''} ${c.name}</option>`).join('')}</optgroup>`
+  }).join('')
+
+  const summary = appliedCount > 0
+    ? `סווגו אוטומטית ${appliedCount} עסקאות. דרושה החלטה ב-${ambiguous.length} ספקים:`
+    : `דרושה החלטה ב-${ambiguous.length} ספקים:`
+
+  const rows = ambiguous.map((a, i) => {
+    const candLabel = a.candidates.map(([cid, cnt]) => {
+      const c = cats.find(x => x.id === cid)
+      return `${c?.icon || ''} ${c?.name || 'לא ידוע'} (${cnt})`
+    }).join(' · ')
+    return `
+      <div class="autocat-row" data-idx="${i}">
+        <div class="autocat-row-head">
+          <span class="autocat-vendor">${a.vendor}</span>
+          <span class="autocat-count">${a.txIds.length} עסקאות</span>
+        </div>
+        <div class="autocat-candidates">סיווגים קיימים: ${candLabel}</div>
+        <select class="autocat-select" data-key="${a.key}">
+          <option value="">— דלג —</option>
+          ${catOpts}
+        </select>
+      </div>`
+  }).join('')
+
+  document.getElementById('autocatModalBody').innerHTML = `
+    <div class="autocat-summary">${summary}</div>
+    <div class="autocat-list">${rows}</div>`
+  document.getElementById('autocatModal').classList.add('open')
+}
+
+function applyAutocatChoices() {
+  if (!_autocatPlan) return
+  const selects = document.querySelectorAll('#autocatModalBody .autocat-select')
+  let applied = 0
+  selects.forEach(sel => {
+    const catId = sel.value
+    if (!catId) return
+    const key = sel.dataset.key
+    const entry = _autocatPlan.ambiguous.find(a => a.key === key)
+    if (!entry) return
+    applied += applyCategoryToTxIds(entry.txIds, catId)
+  })
+  closeAutocatModal()
+  alert(applied === 0 ? 'לא בוצעו סיווגים נוספים.' : `סווגו ${applied} עסקאות נוספות.`)
+  if (typeof renderTransactions === 'function') renderTransactions()
+}
+
+function closeAutocatModal() {
+  document.getElementById('autocatModal').classList.remove('open')
+  _autocatPlan = null
+}
