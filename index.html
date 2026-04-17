@@ -262,7 +262,11 @@
   <section class="screen" id="screen-settings">
     <div class="page-header">
       <h1 class="page-title">הגדרות</h1>
-      <span id="appVersion" style="font-size:.75rem;color:var(--text-muted)"></span>
+      <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+        <span id="appVersion" style="font-size:.75rem;color:var(--text-muted)"></span>
+        <button class="btn-ghost" id="updateCheckBtn" onclick="checkForUpdate()" style="padding:.35rem .75rem;font-size:.8rem">🔄 בדוק עדכון</button>
+        <span id="updateCheckMsg" style="font-size:.8rem"></span>
+      </div>
     </div>
 
     <div class="tabs-bar">
@@ -442,15 +446,84 @@
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>
+  let _swReg = null;
+  let _reloadOnControllerChange = false;
+
+  function _showUpdateToast() {
+    const t = document.getElementById('updateToast');
+    if (t) t.classList.add('show');
+  }
+  function _hideUpdateToast() {
+    const t = document.getElementById('updateToast');
+    if (t) t.classList.remove('show');
+  }
+  function applyUpdate() {
+    const waiting = _swReg && _swReg.waiting;
+    if (!waiting) { window.location.reload(); return; }
+    _reloadOnControllerChange = true;
+    waiting.postMessage('SKIP_WAITING');
+  }
+  function _watchWorker(worker) {
+    if (!worker) return;
+    worker.addEventListener('statechange', () => {
+      if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+        _showUpdateToast();
+      }
+    });
+  }
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js?v=' + _v).then(reg => {
+        _swReg = reg;
+        if (reg.waiting && navigator.serviceWorker.controller) _showUpdateToast();
+        _watchWorker(reg.installing);
+        reg.addEventListener('updatefound', () => _watchWorker(reg.installing));
         reg.update();
       });
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload();
+        if (_reloadOnControllerChange) window.location.reload();
       });
     });
+  }
+
+  // Manual update check from settings
+  async function checkForUpdate() {
+    const msgEl = document.getElementById('updateCheckMsg');
+    const btn = document.getElementById('updateCheckBtn');
+    if (msgEl) { msgEl.textContent = 'בודק...'; msgEl.style.color = 'var(--text-muted)'; }
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const info = await res.json();
+      const remote = info.version;
+      if (remote && remote !== APP_VERSION) {
+        if (msgEl) { msgEl.textContent = `יש עדכון! גרסה ${remote} זמינה (מותקנת: ${APP_VERSION})`; msgEl.style.color = 'var(--expense)'; }
+        if (_swReg) await _swReg.update();
+        if (confirm(`נמצאה גרסה חדשה (${remote}). לעדכן ולרענן כעת?`)) {
+          // wait briefly for worker to install, then apply
+          const waitForWaiting = (tries = 20) => new Promise(resolve => {
+            const tick = () => {
+              if (_swReg && _swReg.waiting) return resolve(true);
+              if (--tries <= 0) return resolve(false);
+              setTimeout(tick, 250);
+            };
+            tick();
+          });
+          await waitForWaiting();
+          applyUpdate();
+          // fallback if no waiting worker after grace period
+          setTimeout(() => window.location.reload(), 3000);
+        }
+      } else {
+        if (msgEl) { msgEl.textContent = `✅ האפליקציה מעודכנת (גרסה ${APP_VERSION})`; msgEl.style.color = 'var(--income)'; }
+      }
+    } catch (e) {
+      if (msgEl) { msgEl.textContent = 'שגיאה בבדיקת עדכון: ' + e.message; msgEl.style.color = 'var(--expense)'; }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 </script>
 </body>
