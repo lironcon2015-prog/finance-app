@@ -41,6 +41,7 @@ async function parseWithGemini(file, accountId, apiKey) {
 
   try {
     const isExcel = /\.xlsx?$/i.test(file.name)
+    const isText = /\.(csv|txt)$/i.test(file.name)
     let parts
 
     const prompt = getPrompt()
@@ -48,6 +49,9 @@ async function parseWithGemini(file, accountId, apiKey) {
     if (isExcel) {
       const csv = await excelToCSV(file)
       parts = [{ text: prompt + '\n\nנתוני הקובץ:\n' + csv }]
+    } else if (isText) {
+      const text = await readTextFile(file)
+      parts = [{ text: prompt + '\n\nנתוני הקובץ:\n' + text }]
     } else {
       const base64 = await fileToBase64(file)
       const mimeType = getMimeType(file.name)
@@ -262,6 +266,28 @@ function excelToCSV(file) {
 }
 function getMimeType(filename) {
   if (filename.endsWith('.pdf')) return 'application/pdf'
-  if (filename.endsWith('.csv')) return 'text/plain'
   return 'application/octet-stream'
+}
+
+// Read a text file with encoding detection: UTF-8 first, fallback to windows-1255 (Hebrew)
+// if the UTF-8 decode produced replacement characters (U+FFFD).
+function readTextFile(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader()
+    r.onload = e => {
+      try {
+        const buf = e.target.result
+        const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buf)
+        if (!utf8.includes('\uFFFD')) { res(utf8); return }
+        try {
+          const heb = new TextDecoder('windows-1255', { fatal: false }).decode(buf)
+          res(heb)
+        } catch {
+          res(utf8)
+        }
+      } catch (err) { rej(err) }
+    }
+    r.onerror = rej
+    r.readAsArrayBuffer(file)
+  })
 }
