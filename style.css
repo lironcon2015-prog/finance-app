@@ -409,3 +409,14 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .parse-summary { display: flex; flex-wrap: wrap; gap: 1rem; padding: .6rem .8rem; background: var(--bg-subtle); border-radius: .5rem; margin-bottom: .75rem; font-size: .85rem; }
 .parse-summary-badge { padding: .15rem .6rem; background: var(--accent); color: white; border-radius: .4rem; font-size: .75rem; font-weight: 600; }
 .parse-summary-badge.parse-summary-ai { background: var(--warn, #f59e0b); }
+
+/* ===== Auto-propagate category toast ===== */
+.propagate-toast {
+  position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(100px);
+  background: var(--income); color: white; padding: .7rem 1.2rem;
+  border-radius: .5rem; font-size: .9rem; font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25); z-index: 1000;
+  opacity: 0; transition: opacity .25s, transform .25s;
+  pointer-events: none;
+}
+.propagate-toast.open { opacity: 1; transform: translateX(-50%) translateY(0); }

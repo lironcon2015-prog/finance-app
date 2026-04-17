@@ -1,4 +1,4 @@
-const APP_VERSION = '1.7.1'
+const APP_VERSION = '1.7.2'
 
 // ===== STORAGE =====
 const DB = {
@@ -265,10 +265,53 @@ function saveEditModal() {
       txs[idx].ccPaymentForAccountId = undefined
     }
   }
+  // Auto-propagate: if a category was set on a non-transfer transaction, apply
+  // it to all uncategorized transactions with the same normalized vendor (past
+  // and future). User categorizes once — system learns.
+  let propagated = 0
+  const editedIdx = txs.findIndex(t => t.id === _editId)
+  const edited = editedIdx >= 0 ? txs[editedIdx] : null
+  if (edited && edited.categoryId && edited.type !== 'transfer' && edited.vendor) {
+    propagated = propagateCategoryToSimilar(txs, edited.vendor, edited.categoryId, edited.id)
+  }
+
   DB.set('finTransactions', txs)
   closeEditModal()
   renderTransactions()
+  if (propagated > 0) showPropagateToast(propagated)
 }
+
+function propagateCategoryToSimilar(txs, vendor, categoryId, skipId) {
+  if (typeof normalizeVendorForAutocat !== 'function') return 0
+  const target = normalizeVendorForAutocat(vendor)
+  if (!target) return 0
+  let count = 0
+  for (const t of txs) {
+    if (t.id === skipId) continue
+    if (t.categoryId) continue
+    if (t.type === 'transfer') continue
+    if (!t.vendor) continue
+    if (normalizeVendorForAutocat(t.vendor) !== target) continue
+    t.categoryId = categoryId
+    count++
+  }
+  return count
+}
+
+function showPropagateToast(n) {
+  let el = document.getElementById('propagateToast')
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'propagateToast'
+    el.className = 'propagate-toast'
+    document.body.appendChild(el)
+  }
+  el.textContent = `סווגו ${n} עסקאות דומות אוטומטית`
+  el.classList.add('open')
+  clearTimeout(el._timer)
+  el._timer = setTimeout(() => el.classList.remove('open'), 3000)
+}
+
 function addManualTransaction() {
   _editIsNew = true
   openEditModal(null)
@@ -312,11 +355,37 @@ function migrateTransferLinking_v2() {
   localStorage.setItem('migration_transfer_v2', '1')
 }
 
+// Reverts auto-linked CC transfers on bank accounts back to expense/income.
+// Before 1.7.2, imported bank transactions matching a CC pattern were marked as
+// type='transfer' with ccPaymentForAccountId. That choice excluded them from
+// P&L — but the user wants the bank line to be the authoritative expense.
+// This migration restores those to real expenses/incomes.
+function migrateRevertAutoCc_v1() {
+  if (localStorage.getItem('migration_revert_auto_cc_v1') === '1') return
+  const txs = getTransactions()
+  const accs = getAccounts()
+  const plIds = new Set(accs.filter(a => a.type === 'checking' || a.type === 'cash').map(a => a.id))
+  let changed = 0
+  txs.forEach(t => {
+    if (t.type !== 'transfer') return
+    if (!plIds.has(t.accountId)) return
+    if (!t.ccPaymentForAccountId) return  // only auto-linked rows had this flag
+    t.type = t.amount > 0 ? 'income' : 'expense'
+    delete t.transferAccountId
+    delete t.ccPaymentForAccountId
+    changed++
+  })
+  if (changed > 0) DB.set('finTransactions', txs)
+  localStorage.setItem('migration_revert_auto_cc_v1', '1')
+  if (changed > 0) console.log(`Migration: reverted ${changed} auto-linked CC transfers to P&L expenses/income`)
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
   initDefaultData()
   migrateCreditCardTransfers()
   migrateTransferLinking_v2()
+  migrateRevertAutoCc_v1()
   navigate('dashboard')
 
   const dz = document.getElementById('dropZone')

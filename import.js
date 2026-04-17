@@ -189,14 +189,13 @@ function _finalizeParsedTransactions(parsed, accountId) {
   }
 
   const existingHashes = new Set(existing.map(t => t.sourceHash))
-  const importAccount = getAccounts().find(a => a.id === accountId)
-  const isPatternBearing = ['credit_card','savings','investment'].includes(importAccount?.type)
+
+  // Auto-transfer detection on import is DISABLED: the bank statement is the
+  // authoritative P&L source. A "כאל 5000" line on the bank is a real expense,
+  // not a transfer. Users can manually mark a row as transfer in the edit modal,
+  // or run "זהה אוטומטית חיובי אשראי" in settings to bulk-link after the fact.
 
   _parsedTx = parsed.map(t => {
-    let match = null
-    if (!isPatternBearing && t.amount < 0) {
-      match = findMatchingAccountByPattern(t.vendor, t.description)
-    }
     const catFromName = matchCategory(t)
     const catFromAutocat = catFromName ? '' : suggestFromAutocat(t.vendor)
     return {
@@ -205,10 +204,9 @@ function _finalizeParsedTransactions(parsed, accountId) {
       _hash: hashTx(t, accountId),
       _keep: true,
       _accountId: accountId,
-      _matchAccountId:   match?.id || '',
-      _matchAccountName: match?.name || '',
-      _matchAccountType: match?.type || '',
-      type: match ? 'transfer' : t.type,
+      _matchAccountId:   '',
+      _matchAccountName: '',
+      _matchAccountType: '',
     }
   }).map(t => ({ ...t, _duplicate: existingHashes.has(t._hash), _keep: !existingHashes.has(t._hash) }))
 

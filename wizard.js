@@ -35,12 +35,12 @@ function openTplWizard(file, accountId, rows) {
     lockToAccount: false,
     flipAmountSign: false,
   }
-  document.getElementById('tplWizardModal').classList.add('show')
+  document.getElementById('tplWizardModal').classList.add('open')
   _renderWizard()
 }
 
 function closeTplWizard() {
-  document.getElementById('tplWizardModal').classList.remove('show')
+  document.getElementById('tplWizardModal').classList.remove('open')
   _wizardState = null
 }
 

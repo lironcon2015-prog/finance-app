@@ -1,13 +1,37 @@
 // ===== CORE HELPERS =====
 // Source of truth for counting income/expenses (fixes double-counting)
-// Transfers do NOT count as income or expense (they move money between accounts)
-// Refunds reduce expenses, never count as income
+//
+// P&L PHILOSOPHY: the checking account (and cash) is the authoritative source
+// of real income/expenses. Credit-card and savings/investment account transactions
+// are detail lines — they move money around but don't represent a fresh expense
+// from the user's perspective. Only the bank-level debit to a CC counts as an
+// expense; the detailed CC statement rows are informational (category breakdown,
+// balance tracking) but excluded from P&L totals to avoid double counting.
+//
+// Transfers never count in P&L (they're movements between owned accounts).
+// Refunds reduce expenses, never count as income.
 
-function isCountedIncome(t)  { return t.amount > 0 && t.type !== 'transfer' && t.type !== 'refund' }
-function isCountedExpense(t) { return (t.amount < 0 && t.type !== 'transfer') || (t.type === 'refund' && t.amount > 0) }
+const PL_ACCOUNT_TYPES = new Set(['checking', 'cash'])
+
+let _plAcctIdsCache = null
+let _plAcctIdsCacheTs = 0
+function _getPLAccountIds() {
+  const now = Date.now()
+  if (!_plAcctIdsCache || now - _plAcctIdsCacheTs > 500) {
+    _plAcctIdsCache = new Set(getAccounts().filter(a => PL_ACCOUNT_TYPES.has(a.type)).map(a => a.id))
+    _plAcctIdsCacheTs = now
+  }
+  return _plAcctIdsCache
+}
+function invalidatePLCache() { _plAcctIdsCache = null }
+
+function isPLTransaction(t) { return _getPLAccountIds().has(t.accountId) }
+
+function isCountedIncome(t)  { return isPLTransaction(t) && t.amount > 0 && t.type !== 'transfer' && t.type !== 'refund' }
+function isCountedExpense(t) { return isPLTransaction(t) && ((t.amount < 0 && t.type !== 'transfer') || (t.type === 'refund' && t.amount > 0)) }
 
 function countedExpenseAmount(t) {
-  // Refund with positive amount reduces expenses
+  if (!isPLTransaction(t)) return 0
   if (t.type === 'refund' && t.amount > 0) return -t.amount
   if (t.amount < 0 && t.type !== 'transfer') return Math.abs(t.amount)
   return 0
