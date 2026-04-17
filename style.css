@@ -385,3 +385,27 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
   .stat-grid { grid-template-columns: 1fr; }
   .page-title { font-size: 1.4rem; }
 }
+
+/* ===== Import Template Wizard ===== */
+.tpl-map-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.tpl-map-table th,
+.tpl-map-table td { padding: .4rem .5rem; border: 1px solid var(--border); text-align: right; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.tpl-map-table thead th { background: var(--bg-subtle); font-weight: 600; }
+.tpl-map-table thead tr:nth-child(2) th { padding: .3rem; background: var(--bg); }
+.tpl-role-select { width: 100%; padding: .25rem .4rem; font-size: .8rem; }
+.tpl-preview-ok { color: var(--income); font-size: .85rem; margin-bottom: .5rem; }
+.tpl-preview-warn { color: var(--expense); font-size: .9rem; padding: .5rem .75rem; background: rgba(239,68,68,.08); border-radius: .4rem; }
+.tpl-preview-list { display: flex; flex-direction: column; gap: .3rem; }
+.tpl-preview-tx { display: flex; gap: 1rem; padding: .35rem .6rem; background: var(--bg-subtle); border-radius: .35rem; font-size: .85rem; }
+
+/* ===== Templates management ===== */
+.template-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .75rem; border: 1px solid var(--border); border-radius: .5rem; margin-bottom: .5rem; }
+.template-main { flex: 1; min-width: 0; }
+.template-name { font-weight: 600; margin-bottom: .2rem; }
+.template-meta { font-size: .8rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
+.template-actions { display: flex; gap: .4rem; }
+
+/* ===== Parse summary on review screen ===== */
+.parse-summary { display: flex; flex-wrap: wrap; gap: 1rem; padding: .6rem .8rem; background: var(--bg-subtle); border-radius: .5rem; margin-bottom: .75rem; font-size: .85rem; }
+.parse-summary-badge { padding: .15rem .6rem; background: var(--accent); color: white; border-radius: .4rem; font-size: .75rem; font-weight: 600; }
+.parse-summary-badge.parse-summary-ai { background: var(--warn, #f59e0b); }

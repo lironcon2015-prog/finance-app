@@ -28,11 +28,68 @@ function handleFileSelect(input) {
   if (!file) return
   const accountId = document.getElementById('importAccount')?.value
   if (!accountId) { document.getElementById('importError').textContent = 'יש לבחור חשבון תחילה'; return }
-  const apiKey = getApiKey()
-  if (!apiKey) { document.getElementById('importError').textContent = 'חסר מפתח Gemini API – הזן בהגדרות'; return }
   _importFileName = file.name
-  parseWithGemini(file, accountId, apiKey)
+
+  const isStructured = /\.(xlsx?|csv|txt)$/i.test(file.name)
+  if (isStructured) {
+    handleStructuredFile(file, accountId)
+  } else {
+    const apiKey = getApiKey()
+    if (!apiKey) { document.getElementById('importError').textContent = 'חסר מפתח Gemini API – הזן בהגדרות'; return }
+    parseWithGemini(file, accountId, apiKey)
+  }
 }
+
+async function handleStructuredFile(file, accountId) {
+  document.getElementById('importStep1').style.display = 'none'
+  document.getElementById('importStep2').style.display = 'block'
+  document.getElementById('importFilename').textContent = file.name
+  try {
+    const rows = await extractRowsFromFile(file)
+    // Try existing template (try each plausible header row 0..min(10,rows-1))
+    const maxTry = Math.min(rows.length, 15)
+    let matched = null
+    for (let i = 0; i < maxTry; i++) {
+      const sig = computeHeaderSignature(rows[i] || [])
+      const tpl = findTemplateForSignature(sig)
+      if (tpl) {
+        // Template saved with a specific header row? Respect it.
+        matched = { ...tpl, headerRowIndex: tpl.headerRowIndex ?? i }
+        break
+      }
+    }
+    if (matched) {
+      continueImportWithTemplate(file, accountId, rows, matched)
+    } else {
+      document.getElementById('importStep2').style.display = 'none'
+      openTplWizard(file, accountId, rows)
+    }
+  } catch (err) {
+    console.error('Structured import error:', err)
+    document.getElementById('importStep2').style.display = 'none'
+    document.getElementById('importStepError').style.display = 'block'
+    document.getElementById('importErrMsg').textContent = err.message
+  }
+}
+
+function continueImportWithTemplate(file, accountId, rows, template) {
+  try {
+    document.getElementById('importStep2').style.display = 'block'
+    const { transactions, stats } = parseWithTemplate(rows, template)
+    _lastParseStats = stats
+    _lastTemplateName = template.name
+    bumpTemplateUsage(template.id, transactions.length)
+    _finalizeParsedTransactions(transactions, accountId)
+  } catch (err) {
+    console.error('Template parse error:', err)
+    document.getElementById('importStep2').style.display = 'none'
+    document.getElementById('importStepError').style.display = 'block'
+    document.getElementById('importErrMsg').textContent = err.message
+  }
+}
+
+let _lastParseStats = null
+let _lastTemplateName = ''
 
 async function parseWithGemini(file, accountId, apiKey) {
   document.getElementById('importStep1').style.display = 'none'
@@ -90,51 +147,67 @@ async function parseWithGemini(file, accountId, apiKey) {
       throw new Error(`תשובה ריקה מ-AI (סיבה: ${reason}) – נסה שוב`)
     }
     const parsed = tryParseJSON(text)
-
-    // מיפוי קטגוריות
-    const cats = getCategories()
-    const matchCategory = (t) => {
-      const catName = (t.category || '').trim()
-      if (!catName) return ''
-      const match = cats.find(c => c.name === catName || catName.includes(c.name) || c.name.includes(catName))
-      return match?.id || ''
-    }
-
-    // בדוק כפילויות
-    const existing = getTransactions()
-    const existingHashes = new Set(existing.map(t => t.sourceHash))
-
-    const importAccount = getAccounts().find(a => a.id === accountId)
-    const isPatternBearing = ['credit_card','savings','investment'].includes(importAccount?.type)
-
-    _parsedTx = parsed.map(t => {
-      // Auto-detect transfer target only when importing into a liquid source account
-      let match = null
-      if (!isPatternBearing && t.amount < 0) {
-        match = findMatchingAccountByPattern(t.vendor, t.description)
-      }
-      return {
-        ...t,
-        _categoryId: matchCategory(t),
-        _hash: hashTx(t, accountId),
-        _keep: true,
-        _accountId: accountId,
-        _matchAccountId:   match?.id || '',
-        _matchAccountName: match?.name || '',
-        _matchAccountType: match?.type || '',
-        // Override type suggestion if matched
-        type: match ? 'transfer' : t.type,
-      }
-    }).map(t => ({ ...t, _duplicate: existingHashes.has(t._hash), _keep: !existingHashes.has(t._hash) }))
-
-    document.getElementById('importStep2').style.display = 'none'
-    showImportReview()
+    _lastParseStats = null
+    _lastTemplateName = ''
+    _finalizeParsedTransactions(parsed, accountId)
   } catch (err) {
     console.error('Import error:', err)
     document.getElementById('importStep2').style.display = 'none'
     document.getElementById('importStepError').style.display = 'block'
     document.getElementById('importErrMsg').textContent = err.message
   }
+}
+
+function _finalizeParsedTransactions(parsed, accountId) {
+  const cats = getCategories()
+  const matchCategory = (t) => {
+    const catName = (t.category || '').trim()
+    if (!catName) return ''
+    const match = cats.find(c => c.name === catName || catName.includes(c.name) || c.name.includes(catName))
+    return match?.id || ''
+  }
+
+  // Autocat: learn from user's prior categorizations by vendor (uncategorized only)
+  const existing = getTransactions()
+  const autocatRules = (typeof _buildVendorCategoryRules === 'function')
+    ? _buildVendorCategoryRules(existing) : {}
+  const suggestFromAutocat = (vendor) => {
+    if (!vendor) return ''
+    const k = (typeof normalizeVendorForAutocat === 'function') ? normalizeVendorForAutocat(vendor) : ''
+    if (!k || !autocatRules[k]) return ''
+    const entries = Object.entries(autocatRules[k])
+    const total = entries.reduce((s, [, n]) => s + n, 0)
+    entries.sort((a, b) => b[1] - a[1])
+    const [topCat, topN] = entries[0]
+    return (topN / total) >= 0.8 ? topCat : ''
+  }
+
+  const existingHashes = new Set(existing.map(t => t.sourceHash))
+  const importAccount = getAccounts().find(a => a.id === accountId)
+  const isPatternBearing = ['credit_card','savings','investment'].includes(importAccount?.type)
+
+  _parsedTx = parsed.map(t => {
+    let match = null
+    if (!isPatternBearing && t.amount < 0) {
+      match = findMatchingAccountByPattern(t.vendor, t.description)
+    }
+    const catFromName = matchCategory(t)
+    const catFromAutocat = catFromName ? '' : suggestFromAutocat(t.vendor)
+    return {
+      ...t,
+      _categoryId: catFromName || catFromAutocat,
+      _hash: hashTx(t, accountId),
+      _keep: true,
+      _accountId: accountId,
+      _matchAccountId:   match?.id || '',
+      _matchAccountName: match?.name || '',
+      _matchAccountType: match?.type || '',
+      type: match ? 'transfer' : t.type,
+    }
+  }).map(t => ({ ...t, _duplicate: existingHashes.has(t._hash), _keep: !existingHashes.has(t._hash) }))
+
+  document.getElementById('importStep2').style.display = 'none'
+  showImportReview()
 }
 
 function showImportReview() {
@@ -150,6 +223,9 @@ function showImportReview() {
       <div class="chip-label">${c.label}</div>
       <div class="chip-value" style="color:${c.color}">${c.value}</div>
     </div>`).join('')
+
+  const summaryEl = document.getElementById('importParseSummary')
+  if (summaryEl) summaryEl.innerHTML = _buildParseSummary()
 
   const cats = getCategories()
   const typeLabel = tp => ({ income:'הכנסה', expense:'הוצאה', transfer:'העברה', refund:'החזר' }[tp] || tp)
@@ -174,6 +250,30 @@ function showImportReview() {
 
   document.getElementById('importStep3').style.display = 'block'
   _updateSaveBtn()
+}
+
+function _buildParseSummary() {
+  const txs = _parsedTx.filter(t => !t._duplicate)
+  if (txs.length === 0) return ''
+  const incomeSum   = txs.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount, 0)
+  const expenseSum  = txs.filter(t => t.amount < 0).reduce((s,t)=>s+t.amount, 0)
+  const dates = txs.map(t => t.date).filter(Boolean).sort()
+  const minDate = dates[0], maxDate = dates[dates.length - 1]
+  const tplBadge = _lastTemplateName
+    ? `<span class="parse-summary-badge">תבנית: ${_lastTemplateName}</span>`
+    : `<span class="parse-summary-badge parse-summary-ai">AI</span>`
+  const stats = _lastParseStats
+  const skippedNote = stats && stats.skipped > 0
+    ? ` · דולגו ${stats.skipped} שורות (${Object.entries(stats.skippedReasons).map(([r,n])=>`${r}: ${n}`).join(', ')})`
+    : ''
+  return `
+    <div class="parse-summary">
+      ${tplBadge}
+      <span>הכנסות: <b style="color:var(--income)">+${Math.round(incomeSum).toLocaleString('he-IL')}</b></span>
+      <span>הוצאות: <b style="color:var(--expense)">${Math.round(expenseSum).toLocaleString('he-IL')}</b></span>
+      <span>טווח: ${minDate || '—'} → ${maxDate || '—'}</span>
+      ${skippedNote ? `<span style="color:var(--text-muted)">${skippedNote}</span>` : ''}
+    </div>`
 }
 
 function _updateSaveBtn() {

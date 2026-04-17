@@ -10,7 +10,57 @@ function renderSettings() {
   document.getElementById('promptInput').value = getPrompt()
   document.getElementById('promptMsg').textContent = ''
   renderImportBatches()
+  renderTemplatesList()
   document.getElementById('appVersion').textContent = 'גרסה ' + APP_VERSION
+}
+
+function renderTemplatesList() {
+  const el = document.getElementById('templatesList')
+  if (!el) return
+  const list = getTemplates()
+  if (list.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:.9rem">אין תבניות שמורות. ייבא קובץ מובנה (Excel/CSV/TXT) כדי ליצור תבנית ראשונה.</div>'
+    return
+  }
+  const accs = getAccounts()
+  el.innerHTML = list.map(t => {
+    const acc = t.accountId ? accs.find(a => a.id === t.accountId) : null
+    const lastUsed = t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleDateString('he-IL') : '—'
+    const headerPreview = (t.headerPreview || []).join(' · ').slice(0, 80) || '(ללא תצוגה)'
+    return `
+      <div class="template-row">
+        <div class="template-main">
+          <div class="template-name">${t.name}</div>
+          <div class="template-meta">${headerPreview}</div>
+          <div class="template-meta">
+            ${acc ? `חשבון: ${acc.name} · ` : 'כל חשבון · '}
+            שימוש אחרון: ${lastUsed} ·
+            סה"כ תנועות שחולצו: ${t.txCount || 0}
+          </div>
+        </div>
+        <div class="template-actions">
+          <button class="btn-ghost" onclick="renameTemplate('${t.id}')">שנה שם</button>
+          <button class="btn-danger" onclick="confirmDeleteTemplate('${t.id}')">מחק</button>
+        </div>
+      </div>`
+  }).join('')
+}
+
+function renameTemplate(id) {
+  const list = getTemplates()
+  const t = list.find(x => x.id === id)
+  if (!t) return
+  const newName = prompt('שם חדש לתבנית:', t.name)
+  if (!newName || newName === t.name) return
+  t.name = newName.trim()
+  saveTemplates(list)
+  renderTemplatesList()
+}
+
+function confirmDeleteTemplate(id) {
+  if (!confirm('למחוק את התבנית? ייבוא עתידי מאותו מקור ידרוש מיפוי מחדש.')) return
+  deleteTemplate(id)
+  renderTemplatesList()
 }
 
 function switchTab(name, btn) {

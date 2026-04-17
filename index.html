@@ -168,6 +168,7 @@
 
       <div id="importStep3" style="display:none">
         <div class="import-chips" id="importChips"></div>
+        <div id="importParseSummary"></div>
         <div style="overflow-x:auto">
           <table class="data-table" id="importTable"></table>
         </div>
@@ -282,6 +283,7 @@
       <button class="tab-btn" onclick="switchTab('budget',this)">תקציב</button>
       <button class="tab-btn" onclick="switchTab('api',this)">מפתח API</button>
       <button class="tab-btn" onclick="switchTab('prompt',this)">הנחיות AI</button>
+      <button class="tab-btn" onclick="switchTab('templates',this)">תבניות ייבוא</button>
       <button class="tab-btn" onclick="switchTab('data',this)">ניהול נתונים</button>
       <button class="tab-btn" onclick="switchTab('backup',this)">גיבוי</button>
     </div>
@@ -382,6 +384,17 @@
       </div>
     </div>
 
+    <div class="tab-panel" id="tab-templates" style="display:none">
+      <div class="card">
+        <div class="card-title">תבניות ייבוא</div>
+        <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem">
+          בייבוא ראשון מכל מקור (דף בנק, דוח אשראי) המערכת שואלת מיפוי עמודות ושומרת אותו כתבנית.
+          בייבואים הבאים מאותו מקור — הפרסור יהיה דטרמיניסטי לחלוטין (ללא AI, ללא טעויות).
+        </p>
+        <div id="templatesList"></div>
+      </div>
+    </div>
+
     <div class="tab-panel" id="tab-data" style="display:none">
       <div class="card">
         <div class="card-title">ייבואים קודמים</div>
@@ -450,23 +463,43 @@
   </div>
 </div>
 
+<!-- Import Template Wizard -->
+<div class="modal-overlay" id="tplWizardModal">
+  <div class="modal-box" style="max-width:900px">
+    <div class="modal-header">
+      <h3>מיפוי עמודות — מקור חדש</h3>
+      <button class="modal-close" onclick="closeTplWizard()">✕</button>
+    </div>
+    <div id="tplWizardBody"></div>
+    <div style="display:flex;gap:.75rem;justify-content:space-between;margin-top:1.25rem">
+      <div style="font-size:.85rem;color:var(--text-muted)" id="tplWizardStatus"></div>
+      <div style="display:flex;gap:.75rem">
+        <button class="btn-ghost" onclick="closeTplWizard()">ביטול</button>
+        <button class="btn-primary" id="tplWizardSaveBtn" onclick="saveTplWizard()">שמור והמשך</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Update Toast -->
 <div id="updateToast" class="update-toast">
   <span>✨ גרסה חדשה זמינה!</span>
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.6.1';</script>
-<script src="app.js?v=1.6.1"></script>
-<script src="core.js?v=1.6.1"></script>
-<script src="budget.js?v=1.6.1"></script>
-<script src="recurring.js?v=1.6.1"></script>
-<script src="dashboard.js?v=1.6.1"></script>
-<script src="transactions.js?v=1.6.1"></script>
-<script src="import.js?v=1.6.1"></script>
-<script src="analysis.js?v=1.6.1"></script>
-<script src="settings.js?v=1.6.1"></script>
-<script src="autocat.js?v=1.6.1"></script>
+<script>const _v = '1.7.0';</script>
+<script src="app.js?v=1.7.0"></script>
+<script src="core.js?v=1.7.0"></script>
+<script src="templates.js?v=1.7.0"></script>
+<script src="autocat.js?v=1.7.0"></script>
+<script src="budget.js?v=1.7.0"></script>
+<script src="recurring.js?v=1.7.0"></script>
+<script src="dashboard.js?v=1.7.0"></script>
+<script src="transactions.js?v=1.7.0"></script>
+<script src="wizard.js?v=1.7.0"></script>
+<script src="import.js?v=1.7.0"></script>
+<script src="analysis.js?v=1.7.0"></script>
+<script src="settings.js?v=1.7.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>
