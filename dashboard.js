@@ -12,11 +12,11 @@ function renderDashboard() {
   const income   = sumIncome(periodTx)
   const expenses = sumExpenses(periodTx)
   const net      = income - expenses
-  const netWorth = getNetWorth()
+  const liquid   = getLiquidBalance()
 
   // Stats row (4 cards)
   document.getElementById('dashStats').innerHTML = [
-    { label: 'שווי נטו כולל',  value: netWorth, color: netWorth >= 0 ? 'var(--income)' : 'var(--expense)', icon: '💎', bg: netWorth >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)' },
+    { label: 'יתרות נזילות',   value: liquid,   color: liquid >= 0 ? 'var(--income)' : 'var(--expense)', icon: '💧', bg: liquid >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)' },
     { label: 'הכנסות התקופה', value: income,   color: 'var(--income)',  icon: '📈', bg: 'var(--income-bg)' },
     { label: 'הוצאות התקופה', value: expenses, color: 'var(--expense)', icon: '📉', bg: 'var(--expense-bg)' },
     { label: 'נטו התקופה',    value: net,      color: net >= 0 ? 'var(--income)' : 'var(--expense)', icon: '⚖️', bg: net >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)' },
@@ -31,6 +31,9 @@ function renderDashboard() {
 
   // Accounts balances
   _renderAccountBalances()
+
+  // Savings & investment flows for active period
+  _renderNonLiquidFlows(period)
 
   // Monthly chart - respects period (up to 12 months)
   _renderMonthlyChart(all, period)
@@ -57,8 +60,11 @@ function _renderAccountBalances() {
     el.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1rem">אין חשבונות. עבור להגדרות.</p>'
     return
   }
-  const TYPE = { checking:'עו"ש', savings:'חיסכון', credit_card:'אשראי', cash:'מזומן' }
-  el.innerHTML = accs.map(a => {
+  const TYPE = { checking:'עו"ש', savings:'חיסכון', credit_card:'אשראי', cash:'מזומן', investment:'ני"ע' }
+  const liquid    = accs.filter(isLiquidAccount)
+  const nonLiquid = accs.filter(a => !isLiquidAccount(a))
+
+  const rowHtml = a => {
     const bal = getAccountBalance(a.id)
     const color = a.type === 'credit_card' ? (bal < 0 ? 'var(--expense)' : 'var(--text-secondary)') : (bal >= 0 ? 'var(--income)' : 'var(--expense)')
     return `
@@ -69,7 +75,46 @@ function _renderAccountBalances() {
         </div>
         <span style="font-weight:700;color:${color}">${formatCurrency(bal)}</span>
       </div>`
-  }).join('')
+  }
+
+  const liquidSection = liquid.length ? liquid.map(rowHtml).join('') : ''
+  const nonLiquidSection = nonLiquid.length
+    ? `<div class="account-group-label">חיסכון והשקעות</div>${nonLiquid.map(rowHtml).join('')}`
+    : ''
+  el.innerHTML = liquidSection + nonLiquidSection
+}
+
+function _renderNonLiquidFlows(period) {
+  const el = document.getElementById('dashNonLiquidFlows')
+  const card = document.getElementById('dashNonLiquidFlowsCard')
+  if (!el) return
+  const accs = getAccounts().filter(a => !isLiquidAccount(a))
+  if (accs.length === 0) { el.innerHTML = ''; if (card) card.style.display = 'none'; return }
+  if (card) card.style.display = ''
+
+  const rows = accs.map(a => ({ acc: a, ...getAccountFlow(a.id, period) }))
+  const totalNet = rows.reduce((s, r) => s + r.net, 0)
+  const TYPE = { savings:'חיסכון', investment:'ני"ע / השקעות' }
+
+  el.innerHTML = `
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:baseline">
+      <span>💰 תזרים חיסכון והשקעות</span>
+      <span style="font-size:.85rem;font-weight:600;color:${totalNet>=0?'var(--income)':'var(--expense)'}">נטו: ${totalNet>=0?'+':''}${formatCurrency(totalNet)}</span>
+    </div>
+    <div class="nonliquid-flow-list">
+      ${rows.map(r => `
+        <div class="nonliquid-flow-row">
+          <div>
+            <div class="list-item-name">${r.acc.name}</div>
+            <div class="list-item-sub">${TYPE[r.acc.type]||r.acc.type}${r.acc.institution?' · '+r.acc.institution:''}</div>
+          </div>
+          <div class="nonliquid-flow-nums">
+            <span class="income-color">+${formatCurrency(r.deposited)}</span>
+            <span class="expense-color">-${formatCurrency(r.withdrawn)}</span>
+            <span style="font-weight:700;color:${r.net>=0?'var(--income)':'var(--expense)'}">${r.net>=0?'+':''}${formatCurrency(r.net)}</span>
+          </div>
+        </div>`).join('')}
+    </div>`
 }
 
 function _renderMonthlyChart(all, period) {

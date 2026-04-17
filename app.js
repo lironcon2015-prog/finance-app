@@ -1,4 +1,4 @@
-const APP_VERSION = '1.4.0'
+const APP_VERSION = '1.5.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -305,10 +305,9 @@ function migrateCreditCardTransfers() {
 
 function migrateTransferLinking_v2() {
   if (localStorage.getItem('migration_transfer_v2')) return
-  // For all existing 'transfer' transactions in bank accounts without a linked CC account,
-  // try to match against CC account paymentVendorPatterns; if none defined yet, skip silently.
-  autoLinkCcPayments()
-  // Also fix CC-statement purchases that were mistakenly marked as transfer
+  // Link transfers to matching pattern-bearing accounts (CC / savings / investment).
+  autoLinkTransfersByPattern()
+  // Also fix CC-statement purchases that were mistakenly marked as transfer.
   fixCcStatementTypes()
   localStorage.setItem('migration_transfer_v2', '1')
 }

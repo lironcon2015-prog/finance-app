@@ -26,9 +26,10 @@ function toggleAccForm() {
   f.style.display = f.style.display === 'none' ? 'block' : 'none'
 }
 
+const PATTERN_BEARING_TYPES = ['credit_card', 'savings', 'investment']
 function _onAccTypeChange() {
   const t = document.getElementById('accType').value
-  document.getElementById('accPatternsRow').style.display = t === 'credit_card' ? 'block' : 'none'
+  document.getElementById('accPatternsRow').style.display = PATTERN_BEARING_TYPES.includes(t) ? 'block' : 'none'
 }
 
 function saveAccount() {
@@ -37,7 +38,7 @@ function saveAccount() {
   const accounts = getAccounts()
   const type = document.getElementById('accType').value
   const patternsRaw = document.getElementById('accPatterns')?.value || ''
-  const patterns = type === 'credit_card'
+  const patterns = PATTERN_BEARING_TYPES.includes(type)
     ? patternsRaw.split('\n').map(s => s.trim()).filter(Boolean)
     : undefined
   accounts.push({
@@ -64,16 +65,16 @@ function editAccountPatterns(id) {
   const acc = accs.find(a => a.id === id)
   if (!acc) return
   const current = (acc.paymentVendorPatterns || []).join('\n')
-  const v = prompt(`דפוסי זיהוי לחשבון "${acc.name}":\n(שורה לכל ביטוי - משמש לזיהוי חיובי האשראי בדפי הבנק)`, current)
+  const v = prompt(`דפוסי זיהוי לחשבון "${acc.name}":\n(שורה לכל ביטוי - משמש לזיהוי העברות אל החשבון בדפי הבנק)`, current)
   if (v === null) return
   acc.paymentVendorPatterns = v.split('\n').map(s => s.trim()).filter(Boolean)
   DB.set('finAccounts', accs)
   renderSettings()
 }
 
-function runAutoLinkCcPayments() {
-  const n = autoLinkCcPayments()
-  alert(n === 0 ? 'לא נמצאו חיובי אשראי להתאמה חדשה' : `זוהו וסומנו ${n} חיובי אשראי כהעברות`)
+function runAutoLinkTransfers() {
+  const n = autoLinkTransfersByPattern()
+  alert(n === 0 ? 'לא נמצאו העברות חדשות להתאמה' : `זוהו וסומנו ${n} העברות לפי דפוסים`)
   renderSettings()
 }
 
@@ -86,13 +87,13 @@ function deleteAccount(id) {
 function renderAccountList() {
   const accounts = getAccounts()
   document.getElementById('accCount').textContent = `${accounts.length} חשבונות`
-  const TYPE = { checking:'עו"ש', savings:'חיסכון', credit_card:'כרטיס אשראי', cash:'מזומן' }
+  const TYPE = { checking:'עו"ש', savings:'חיסכון', credit_card:'כרטיס אשראי', cash:'מזומן', investment:'ני"ע / השקעות' }
   document.getElementById('accList').innerHTML = accounts.length === 0
     ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין חשבונות. לחץ "חשבון חדש" להוסיף.</p>'
     : accounts.map(a => {
         const bal = getAccountBalance(a.id)
         const balColor = bal >= 0 ? 'var(--income)' : 'var(--expense)'
-        const patternsBtn = a.type === 'credit_card'
+        const patternsBtn = PATTERN_BEARING_TYPES.includes(a.type)
           ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .7rem" onclick="editAccountPatterns('${a.id}')">דפוסי זיהוי (${(a.paymentVendorPatterns||[]).length})</button>`
           : ''
         return `

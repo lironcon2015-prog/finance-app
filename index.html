@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <!-- v1.4.0 -->
+  <!-- v1.5.0 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>כספים – ניהול פיננסי</title>
   <link rel="stylesheet" href="style.css">
@@ -90,6 +90,9 @@
         <div id="catBreakdown"></div>
       </div>
     </div>
+    <div class="card" style="margin-top:1.25rem" id="dashNonLiquidFlowsCard">
+      <div id="dashNonLiquidFlows"></div>
+    </div>
     <div class="card" style="margin-top:1.25rem">
       <div class="card-title">🔮 תחזית תזרים</div>
       <div id="dashForecast"></div>
@@ -123,6 +126,7 @@
           <option value="uncategorized">ללא קטגוריה</option>
         </select>
         <select id="txAccountFilter" onchange="_txPage=0;_drawTxTable()"></select>
+        <select id="txFlowFilter" onchange="_txPage=0;_drawTxTable()"></select>
         <select id="txMonthFilter" onchange="_txPage=0;_drawTxTable()"></select>
       </div>
       <div class="tx-summary" id="txSummary"></div>
@@ -225,8 +229,8 @@
         <div style="height:200px;margin-top:1rem"><canvas id="yoyChart"></canvas></div>
       </div>
       <div class="card">
-        <div class="card-title">שווי נטו לאורך זמן</div>
-        <div style="height:280px"><canvas id="netWorthChart"></canvas></div>
+        <div class="card-title">יתרות נזילות לאורך זמן</div>
+        <div style="height:280px"><canvas id="liquidBalanceChart"></canvas></div>
       </div>
     </div>
 
@@ -290,6 +294,7 @@
             <select id="accType" onchange="_onAccTypeChange()">
               <option value="checking">עו"ש</option>
               <option value="savings">חיסכון</option>
+              <option value="investment">ני"ע / השקעות</option>
               <option value="credit_card">כרטיס אשראי</option>
               <option value="cash">מזומן</option>
             </select>
@@ -299,8 +304,8 @@
         </div>
         <div id="accPatternsRow" style="display:none;margin-top:1rem">
           <label class="form-label">דפוסי זיהוי בבנק (שורה לכל ביטוי)</label>
-          <textarea id="accPatterns" rows="3" placeholder='לדוגמה:&#10;ויזה כאל&#10;כאל CAL&#10;chargeויזה'></textarea>
-          <div style="font-size:.75rem;color:var(--text-muted);margin-top:.3rem">ביטויים אלה ישמשו לזיהוי חיובי האשראי בדפי הבנק וסימון אוטומטי כ"העברה"</div>
+          <textarea id="accPatterns" rows="3" placeholder='לדוגמה:&#10;ויזה כאל&#10;הפקדה לחיסכון&#10;העברה לבית השקעות'></textarea>
+          <div style="font-size:.75rem;color:var(--text-muted);margin-top:.3rem">ביטויים אלה ישמשו לזיהוי העברות אל החשבון (אשראי / חיסכון / ני"ע) בדפי הבנק וסימון אוטומטי כ"העברה"</div>
         </div>
         <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem">
           <button class="btn-ghost" onclick="toggleAccForm()">ביטול</button>
@@ -309,7 +314,7 @@
       </div>
       <div id="accList"></div>
       <div style="margin-top:1rem">
-        <button class="btn-ghost" onclick="runAutoLinkCcPayments()">🔍 סרוק עסקאות ובצע קישור אוטומטי לחשבונות אשראי</button>
+        <button class="btn-ghost" onclick="runAutoLinkTransfers()">🔍 סרוק עסקאות ובצע קישור אוטומטי לחשבונות (אשראי, חיסכון, ני"ע)</button>
       </div>
     </div>
 
@@ -433,16 +438,16 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.4.0';</script>
-<script src="app.js?v=1.4.0"></script>
-<script src="core.js?v=1.4.0"></script>
-<script src="budget.js?v=1.4.0"></script>
-<script src="recurring.js?v=1.4.0"></script>
-<script src="dashboard.js?v=1.4.0"></script>
-<script src="transactions.js?v=1.4.0"></script>
-<script src="import.js?v=1.4.0"></script>
-<script src="analysis.js?v=1.4.0"></script>
-<script src="settings.js?v=1.4.0"></script>
+<script>const _v = '1.5.0';</script>
+<script src="app.js?v=1.5.0"></script>
+<script src="core.js?v=1.5.0"></script>
+<script src="budget.js?v=1.5.0"></script>
+<script src="recurring.js?v=1.5.0"></script>
+<script src="dashboard.js?v=1.5.0"></script>
+<script src="transactions.js?v=1.5.0"></script>
+<script src="import.js?v=1.5.0"></script>
+<script src="analysis.js?v=1.5.0"></script>
+<script src="settings.js?v=1.5.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

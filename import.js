@@ -101,13 +101,13 @@ async function parseWithGemini(file, accountId, apiKey) {
     const existingHashes = new Set(existing.map(t => t.sourceHash))
 
     const importAccount = getAccounts().find(a => a.id === accountId)
-    const isCcAccount = importAccount?.type === 'credit_card'
+    const isPatternBearing = ['credit_card','savings','investment'].includes(importAccount?.type)
 
     _parsedTx = parsed.map(t => {
-      // Auto-detect CC payment only when importing NON-credit-card account
-      let ccMatch = null
-      if (!isCcAccount && t.amount < 0) {
-        ccMatch = findMatchingCcAccount(t.vendor, t.description)
+      // Auto-detect transfer target only when importing into a liquid source account
+      let match = null
+      if (!isPatternBearing && t.amount < 0) {
+        match = findMatchingAccountByPattern(t.vendor, t.description)
       }
       return {
         ...t,
@@ -115,10 +115,11 @@ async function parseWithGemini(file, accountId, apiKey) {
         _hash: hashTx(t, accountId),
         _keep: true,
         _accountId: accountId,
-        _ccMatchAccountId: ccMatch?.id || '',
-        _ccMatchAccountName: ccMatch?.name || '',
+        _matchAccountId:   match?.id || '',
+        _matchAccountName: match?.name || '',
+        _matchAccountType: match?.type || '',
         // Override type suggestion if matched
-        type: ccMatch ? 'transfer' : t.type,
+        type: match ? 'transfer' : t.type,
       }
     }).map(t => ({ ...t, _duplicate: existingHashes.has(t._hash), _keep: !existingHashes.has(t._hash) }))
 
@@ -151,7 +152,7 @@ function showImportReview() {
   const typeCls = tp => ({ income:'type-income', expense:'type-expense', transfer:'type-transfer', refund:'type-refund' }[tp] || 'type-expense')
   const rows = _parsedTx.map((t, i) => {
     const cat = cats.find(c => c.id === t._categoryId)
-    const ccNote = t._ccMatchAccountName ? `<div style="font-size:.72rem;color:var(--accent);margin-top:.15rem">→ ${t._ccMatchAccountName}</div>` : ''
+    const ccNote = t._matchAccountName ? `<div style="font-size:.72rem;color:var(--accent);margin-top:.15rem">→ ${t._matchAccountName}</div>` : ''
     return `
     <tr style="opacity:${t._duplicate?'.4':'1'}">
       <td><input type="checkbox" ${t._keep&&!t._duplicate?'checked':''} ${t._duplicate?'disabled':''}
@@ -198,8 +199,8 @@ function saveImport() {
     importBatch: batchId,
     importedAt:  importedAt,
     createdAt:   importedAt,
-    transferAccountId: t._ccMatchAccountId || undefined,
-    ccPaymentForAccountId: t._ccMatchAccountId || undefined,
+    transferAccountId: t._matchAccountId || undefined,
+    ccPaymentForAccountId: t._matchAccountType === 'credit_card' ? t._matchAccountId : undefined,
   }))
   DB.set('finTransactions', [...existing, ...newTx])
   document.getElementById('importStep3').style.display = 'none'

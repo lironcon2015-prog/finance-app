@@ -77,6 +77,11 @@ function shiftPeriodByYear(p, years = 1) {
 }
 
 // ===== BALANCES =====
+// "Liquid" accounts are those whose balance represents immediate purchasing power
+// (checking, cash, credit_card debt). Savings & investments are tracked separately.
+const NON_LIQUID_ACCOUNT_TYPES = new Set(['savings', 'investment'])
+function isLiquidAccount(a) { return !NON_LIQUID_ACCOUNT_TYPES.has(a.type) }
+
 function getAccountBalance(accountId, uptoDateISO = null) {
   const acc = getAccounts().find(a => a.id === accountId)
   if (!acc) return 0
@@ -93,17 +98,35 @@ function getAccountBalance(accountId, uptoDateISO = null) {
   return balance
 }
 
-function getNetWorth(uptoDateISO = null) {
-  return getAccounts().reduce((s, a) => s + getAccountBalance(a.id, uptoDateISO), 0)
+function getLiquidBalance(uptoDateISO = null) {
+  return getAccounts().filter(isLiquidAccount).reduce((s, a) => s + getAccountBalance(a.id, uptoDateISO), 0)
 }
 
-function getNetWorthTrend(months) {
-  // Returns [{ month, netWorth }] for each YYYY-MM, measured at end of month
+function getLiquidBalanceTrend(months) {
   return months.map(mo => {
     const [y, m] = mo.split('-').map(Number)
     const endIso = _iso(new Date(y, m, 0))
-    return { month: mo, netWorth: getNetWorth(endIso) }
+    return { month: mo, balance: getLiquidBalance(endIso) }
   })
+}
+
+// Flow to/from a specific account during a period.
+// Deposited = positive balance deltas entering the account (including mirror side of transfers)
+// Withdrawn = negative balance deltas leaving the account
+function getAccountFlow(accountId, period) {
+  const txs = filterByPeriod(getTransactions(), period)
+  let deposited = 0, withdrawn = 0
+  txs.forEach(t => {
+    let delta = 0
+    if (t.accountId === accountId) {
+      delta = t.amount
+    } else if (t.type === 'transfer' && (t.transferAccountId === accountId || t.ccPaymentForAccountId === accountId)) {
+      delta = -t.amount
+    }
+    if (delta > 0) deposited += delta
+    else if (delta < 0) withdrawn += -delta
+  })
+  return { deposited, withdrawn, net: deposited - withdrawn }
 }
 
 // ===== PERIOD SELECTOR UI =====
@@ -147,12 +170,15 @@ function renderPeriodSelector(containerId, onChange) {
   })
 }
 
-// ===== CC PAYMENT MATCHING =====
-function findMatchingCcAccount(vendor, description) {
+// ===== TRANSFER AUTO-MATCHING =====
+// Matches a bank transaction against accounts that define paymentVendorPatterns
+// (credit_card, savings, or investment). Returns the matched account or null.
+const PATTERN_MATCHABLE_TYPES = new Set(['credit_card', 'savings', 'investment'])
+function findMatchingAccountByPattern(vendor, description) {
   const text = ((vendor || '') + ' ' + (description || '')).toLowerCase().trim()
   if (!text) return null
-  const ccAccounts = getAccounts().filter(a => a.type === 'credit_card')
-  for (const acc of ccAccounts) {
+  const candidates = getAccounts().filter(a => PATTERN_MATCHABLE_TYPES.has(a.type))
+  for (const acc of candidates) {
     const patterns = acc.paymentVendorPatterns || []
     for (const p of patterns) {
       if (!p) continue
@@ -162,21 +188,22 @@ function findMatchingCcAccount(vendor, description) {
   return null
 }
 
-// Scan all transactions and link CC payments; returns count of updates
-function autoLinkCcPayments() {
+// Scan all transactions on liquid source accounts and link matching transfers
+// to their destination (CC / savings / investment). Returns count of updates.
+function autoLinkTransfersByPattern() {
   const txs = getTransactions()
   const accs = getAccounts()
-  const bankAccIds = new Set(accs.filter(a => a.type !== 'credit_card').map(a => a.id))
+  const srcAccIds = new Set(accs.filter(a => !PATTERN_MATCHABLE_TYPES.has(a.type)).map(a => a.id))
   let changed = 0
   txs.forEach(t => {
-    if (!bankAccIds.has(t.accountId)) return
+    if (!srcAccIds.has(t.accountId)) return
     if (t.amount >= 0) return
-    if (t.ccPaymentForAccountId) return
-    const match = findMatchingCcAccount(t.vendor, t.description)
+    if (t.transferAccountId) return
+    const match = findMatchingAccountByPattern(t.vendor, t.description)
     if (match) {
       t.type = 'transfer'
-      t.ccPaymentForAccountId = match.id
       t.transferAccountId = match.id
+      if (match.type === 'credit_card') t.ccPaymentForAccountId = match.id
       changed++
     }
   })

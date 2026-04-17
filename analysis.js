@@ -1,7 +1,7 @@
 let _pieChart = null
 let _trendChart = null
 let _yoyChart = null
-let _netWorthChart = null
+let _liquidBalanceChart = null
 
 function renderAnalysis() {
   renderPeriodSelector('analysisPeriodSelector', () => _drawAnalysis())
@@ -48,8 +48,8 @@ function _drawAnalysis() {
   // Cash flow statement
   _renderCashFlowStatement(all, period)
 
-  // Net worth trend
-  _renderNetWorthChart(period)
+  // Liquid balance trend
+  _renderLiquidBalanceChart(period)
 
   // Top vendors
   _renderTopVendors(periodTx)
@@ -209,24 +209,32 @@ function _renderYoY(all, period) {
 
 function _renderCashFlowStatement(all, period) {
   const periodTx = filterByPeriod(all, period)
-  // Balance at start of period = opening balances + counted net of tx before period.start
-  // But for account balance, all tx (including transfers) count.
-  const accs = getAccounts()
-  const startBal = accs.reduce((s,a) => s + getAccountBalance(a.id, _iso(new Date(new Date(period.start).getTime() - 86400000))), 0)
-  const income = sumIncome(periodTx)
-  const expense = sumExpenses(periodTx)
-  const endBal = accs.reduce((s,a) => s + getAccountBalance(a.id, period.end), 0)
+  const dayBefore = _iso(new Date(new Date(period.start).getTime() - 86400000))
+  const startBal = getLiquidBalance(dayBefore)
+  const endBal   = getLiquidBalance(period.end)
+  const income   = sumIncome(periodTx)
+  const expense  = sumExpenses(periodTx)
+  const netOp    = income - expense
+
+  // Net flow INTO non-liquid accounts (positive = liquid cash moved to savings/investment)
+  const nonLiquid = getAccounts().filter(a => !isLiquidAccount(a))
+  const netSavings = nonLiquid.reduce((s, a) => s + getAccountFlow(a.id, period).net, 0)
+  const hasNonLiquid = nonLiquid.length > 0
+
+  const savingsRow = hasNonLiquid ? `
+    <div class="cf-row cf-savings"><span>− הועבר לחיסכון/השקעות</span><span>${formatCurrency(netSavings)}</span></div>` : ''
 
   document.getElementById('cashFlowStatement').innerHTML = `
-    <div class="cf-row"><span>יתרה פותחת (${formatDate(period.start)})</span><span style="font-weight:700">${formatCurrency(startBal)}</span></div>
+    <div class="cf-row"><span>יתרה נזילה פותחת (${formatDate(period.start)})</span><span style="font-weight:700">${formatCurrency(startBal)}</span></div>
     <div class="cf-row cf-income"><span>+ הכנסות</span><span>${formatCurrency(income)}</span></div>
     <div class="cf-row cf-expense"><span>− הוצאות</span><span>${formatCurrency(expense)}</span></div>
-    <div class="cf-row cf-net"><span>תזרים נטו לתקופה</span><span>${income - expense >= 0 ? '+' : ''}${formatCurrency(income - expense)}</span></div>
-    <div class="cf-row cf-total"><span>יתרה סוגרת (${formatDate(period.end)})</span><span>${formatCurrency(endBal)}</span></div>
+    <div class="cf-row cf-net"><span>תזרים תפעולי נטו</span><span>${netOp >= 0 ? '+' : ''}${formatCurrency(netOp)}</span></div>
+    ${savingsRow}
+    <div class="cf-row cf-total"><span>יתרה נזילה סוגרת (${formatDate(period.end)})</span><span>${formatCurrency(endBal)}</span></div>
   `
 }
 
-function _renderNetWorthChart(period) {
+function _renderLiquidBalanceChart(period) {
   let months = monthsInPeriod(period)
   if (months.length < 3) {
     const [ey, em] = period.end.split('-').map(Number)
@@ -236,18 +244,18 @@ function _renderNetWorthChart(period) {
       months.push(_ym(d))
     }
   }
-  const trend = getNetWorthTrend(months)
+  const trend = getLiquidBalanceTrend(months)
   const labels = trend.map(t => t.month.slice(5) + '/' + t.month.slice(2,4))
-  const data = trend.map(t => t.netWorth)
+  const data = trend.map(t => t.balance)
 
-  if (_netWorthChart) _netWorthChart.destroy()
-  const ctx = document.getElementById('netWorthChart').getContext('2d')
-  _netWorthChart = new Chart(ctx, {
+  if (_liquidBalanceChart) _liquidBalanceChart.destroy()
+  const ctx = document.getElementById('liquidBalanceChart').getContext('2d')
+  _liquidBalanceChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
       datasets: [{
-        label: 'שווי נטו',
+        label: 'יתרות נזילות',
         data,
         borderColor: '#3b82f6',
         backgroundColor: 'rgba(59,130,246,.15)',
@@ -307,11 +315,11 @@ async function sendChat() {
   const periodTx = filterByPeriod(all, period).slice(0, 100)
   const income = sumIncome(periodTx)
   const expenses = sumExpenses(periodTx)
-  const netWorth = getNetWorth()
+  const liquidBalance = getLiquidBalance()
 
   const context = `אתה יועץ פיננסי אישי דובר עברית. ענה תמיד בעברית, בצורה תמציתית ומקצועית.
 תקופה: ${period.label || period.start + ' → ' + period.end}
-הכנסות ${formatCurrency(income)}, הוצאות ${formatCurrency(expenses)}, נטו ${formatCurrency(income-expenses)}, שווי נטו ${formatCurrency(netWorth)}.
+הכנסות ${formatCurrency(income)}, הוצאות ${formatCurrency(expenses)}, נטו ${formatCurrency(income-expenses)}, יתרות נזילות ${formatCurrency(liquidBalance)}.
 עסקאות לדוגמה (ללא העברות): ${JSON.stringify(periodTx.filter(t => t.type !== 'transfer').slice(0,20))}
 שאלה: ${msg}`
 
