@@ -44,6 +44,8 @@ async function handleStructuredFile(file, accountId) {
   document.getElementById('importStep1').style.display = 'none'
   document.getElementById('importStep2').style.display = 'block'
   document.getElementById('importFilename').textContent = file.name
+  const msgEl = document.getElementById('importLoadingMsg')
+  if (msgEl) msgEl.textContent = 'קורא את הקובץ...'
   try {
     const rows = await extractRowsFromFile(file)
     // Try existing template (try each plausible header row 0..min(10,rows-1))
@@ -75,6 +77,8 @@ async function handleStructuredFile(file, accountId) {
 function continueImportWithTemplate(file, accountId, rows, template) {
   try {
     document.getElementById('importStep2').style.display = 'block'
+    const msgEl = document.getElementById('importLoadingMsg')
+    if (msgEl) msgEl.textContent = `פרסור דטרמיניסטי לפי תבנית "${template.name}"...`
     const { transactions, stats } = parseWithTemplate(rows, template)
     _lastParseStats = stats
     _lastTemplateName = template.name
@@ -95,6 +99,8 @@ async function parseWithGemini(file, accountId, apiKey) {
   document.getElementById('importStep1').style.display = 'none'
   document.getElementById('importStep2').style.display = 'block'
   document.getElementById('importFilename').textContent = file.name
+  const msgEl = document.getElementById('importLoadingMsg')
+  if (msgEl) msgEl.textContent = 'מנתח עם Gemini AI...'
 
   try {
     const isExcel = /\.xlsx?$/i.test(file.name)
