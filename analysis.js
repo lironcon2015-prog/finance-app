@@ -140,6 +140,23 @@ function goToTransactionsByCategory(catId) {
   }
 }
 
+// Keep latest expense rows at module scope so the "expand" modal can render
+// the full list without re-computing on its own.
+let _expenseBreakdownAll = []
+
+function _expenseBreakdownRowHtml(r, totalForPct) {
+  return `
+    <div class="cat-bar-item cat-bar-clickable" onclick="goToTransactionsByCategory('${r.catId}')" title="לחץ כדי לראות עסקאות בקטגוריה זו">
+      <div class="cat-bar-header">
+        <span>${r.name}</span>
+        <span style="color:var(--expense);font-weight:600">${formatCurrency(r.total)}</span>
+      </div>
+      <div class="cat-bar-track">
+        <div class="cat-bar-fill" style="width:${totalForPct>0?Math.round(r.total/totalForPct*100):0}%;background:${r.color}"></div>
+      </div>
+    </div>`
+}
+
 function _renderExpenseBreakdown(periodTx) {
   const savingsInvestIds = analysisExpenseSavingsInvestIds()
   const expByCat = {}
@@ -154,18 +171,32 @@ function _renderExpenseBreakdown(periodTx) {
     totalForPct += ca
   })
   const rows = Object.values(expByCat).map((r, i) => ({ ...r, catId: Object.keys(expByCat)[i] })).sort((a,b) => b.total - a.total)
-  document.getElementById('expenseBreakdown').innerHTML = rows.length === 0
-    ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין הוצאות לתקופה</p>'
-    : rows.map(r => `
-      <div class="cat-bar-item cat-bar-clickable" onclick="goToTransactionsByCategory('${r.catId}')" title="לחץ כדי לראות עסקאות בקטגוריה זו">
-        <div class="cat-bar-header">
-          <span>${r.name}</span>
-          <span style="color:var(--expense);font-weight:600">${formatCurrency(r.total)}</span>
-        </div>
-        <div class="cat-bar-track">
-          <div class="cat-bar-fill" style="width:${totalForPct>0?Math.round(r.total/totalForPct*100):0}%;background:${r.color}"></div>
-        </div>
-      </div>`).join('')
+  _expenseBreakdownAll = { rows, totalForPct }
+
+  const container = document.getElementById('expenseBreakdown')
+  if (rows.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין הוצאות לתקופה</p>'
+    return
+  }
+  const top = rows.slice(0, 10)
+  const more = rows.length - top.length
+  const expandBtn = more > 0
+    ? `<button class="btn-ghost" style="width:100%;margin-top:.5rem;font-size:.85rem" onclick="openExpenseBreakdownModal()">הצג את כל ${rows.length} הקטגוריות (+${more})</button>`
+    : ''
+  container.innerHTML = top.map(r => _expenseBreakdownRowHtml(r, totalForPct)).join('') + expandBtn
+}
+
+function openExpenseBreakdownModal() {
+  const { rows = [], totalForPct = 0 } = _expenseBreakdownAll || {}
+  const body = document.getElementById('expenseBreakdownModalBody')
+  if (!body) return
+  body.innerHTML = rows.length === 0
+    ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין הוצאות</p>'
+    : rows.map(r => _expenseBreakdownRowHtml(r, totalForPct)).join('')
+  document.getElementById('expenseBreakdownModal').classList.add('open')
+}
+function closeExpenseBreakdownModal() {
+  document.getElementById('expenseBreakdownModal').classList.remove('open')
 }
 
 function _renderIncomeBreakdown(periodTx, income) {
@@ -308,25 +339,214 @@ function _renderCashFlowStatement(all, period) {
   `
 }
 
+// Top vendors grouping uses the ALIASED (display) name so unified vendors
+// cluster together. Clicking a row opens a vendor drill modal showing every
+// underlying raw vendor + all transactions, with the option to alias.
+let _topVendorMap = {}  // idx → { displayName, rawVendors: Set<string> }
+
 function _renderTopVendors(periodTx) {
   const byVendor = {}
   periodTx.forEach(t => {
     const ca = countedExpenseAmount(t)
     if (ca <= 0) return
-    const v = (t.vendor || '—').trim()
-    if (!byVendor[v]) byVendor[v] = { vendor: v, total: 0, count: 0 }
-    byVendor[v].total += ca
-    byVendor[v].count++
+    const raw = (t.vendor || '—').trim()
+    const display = resolveVendor(raw) || raw || '—'
+    if (!byVendor[display]) byVendor[display] = { displayName: display, total: 0, count: 0, rawVendors: new Set() }
+    byVendor[display].total += ca
+    byVendor[display].count++
+    if (raw) byVendor[display].rawVendors.add(raw)
   })
   const rows = Object.values(byVendor).sort((a,b) => b.total - a.total).slice(0, 10)
+
+  _topVendorMap = {}
+  rows.forEach((r, i) => { _topVendorMap['v' + i] = { displayName: r.displayName, rawVendors: [...r.rawVendors] } })
+
   document.getElementById('topVendors').innerHTML = rows.length === 0
     ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1.5rem">אין נתונים</p>'
-    : `<table class="data-table" style="font-size:.85rem">
+    : `<table class="data-table top-vendors-table" style="font-size:.85rem">
         <thead><tr><th>ספק</th><th>עסקאות</th><th style="text-align:left">סה"כ</th></tr></thead>
-        <tbody>${rows.map(r => `
-          <tr><td style="font-weight:500">${r.vendor}</td><td>${r.count}</td><td class="amount-exp">${formatCurrency(r.total)}</td></tr>
-        `).join('')}</tbody>
+        <tbody>${rows.map((r, i) => {
+          const aliased = r.rawVendors.size > 1 ? ` <span title="מאוחד מ-${r.rawVendors.size} שמות" style="font-size:.72rem;color:var(--text-muted)">🔗</span>` : ''
+          return `<tr class="vendor-row" onclick="openVendorDrillByIdx('v${i}')" title="לחץ כדי לראות את כל העסקאות">
+            <td style="font-weight:500">${r.displayName}${aliased}</td>
+            <td>${r.count}</td>
+            <td class="amount-exp">${formatCurrency(r.total)}</td>
+          </tr>`
+        }).join('')}</tbody>
       </table>`
+}
+
+// ===== VENDOR DRILL =====
+// State for the drill modal. We store by displayName (post-alias) so the
+// drill shows ALL transactions the user considers "the same vendor" — even
+// after creating a new alias the modal updates live.
+let _vendorDrill = null  // { displayName: string, range: '3m'|'6m'|'12m'|'all'|'custom', customStart, customEnd }
+
+function openVendorDrillByIdx(idx) {
+  const entry = _topVendorMap[idx]
+  if (!entry) return
+  openVendorDrill(entry.displayName)
+}
+
+function openVendorDrill(displayName) {
+  _vendorDrill = { displayName, range: '12m', customStart: '', customEnd: '' }
+  _renderVendorDrill()
+  document.getElementById('vendorDrillModal').classList.add('open')
+}
+
+function closeVendorDrill() {
+  document.getElementById('vendorDrillModal').classList.remove('open')
+  _vendorDrill = null
+}
+
+function setVendorDrillRange(range) {
+  if (!_vendorDrill) return
+  _vendorDrill.range = range
+  _renderVendorDrill()
+}
+
+function applyVendorDrillCustom() {
+  if (!_vendorDrill) return
+  _vendorDrill.customStart = document.getElementById('vendorDrillCustomStart').value
+  _vendorDrill.customEnd   = document.getElementById('vendorDrillCustomEnd').value
+  _vendorDrill.range = 'custom'
+  _renderVendorDrill()
+}
+
+function _getVendorDrillBounds() {
+  const now = new Date()
+  const endIso = _iso(now)
+  if (_vendorDrill.range === 'all') return { start: '0000-01-01', end: endIso }
+  if (_vendorDrill.range === 'custom') {
+    return {
+      start: _vendorDrill.customStart || _iso(new Date(now.getFullYear(), now.getMonth()-12, 1)),
+      end:   _vendorDrill.customEnd   || endIso,
+    }
+  }
+  const monthsBack = _vendorDrill.range === '12m' ? 12 : _vendorDrill.range === '6m' ? 6 : 3
+  return { start: _iso(new Date(now.getFullYear(), now.getMonth() - monthsBack, 1)), end: endIso }
+}
+
+function _renderVendorDrill() {
+  if (!_vendorDrill) return
+  const { displayName } = _vendorDrill
+  document.getElementById('vendorDrillTitle').textContent = `עסקאות – "${displayName}"`
+
+  // Pull ALL tx (any account, any type) whose resolved vendor matches this
+  // display name. No P&L filter — the user wants full picture.
+  const allTx = getTransactions().filter(t => (resolveVendor(t.vendor) || t.vendor || '').trim() === displayName)
+  const rawNames = [...new Set(allTx.map(t => (t.vendor || '').trim()).filter(Boolean))]
+
+  const { start, end } = _getVendorDrillBounds()
+  const filtered = allTx
+    .filter(t => t.date && t.date >= start && t.date <= end)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+
+  const totalAmount = filtered.reduce((s, t) => s + t.amount, 0)
+  const totalAbs    = filtered.reduce((s, t) => s + Math.abs(t.amount), 0)
+  const avg         = filtered.length > 0 ? totalAmount / filtered.length : 0
+
+  const rangeBtn = (key, label) =>
+    `<button class="period-btn ${_vendorDrill.range===key?'active':''}" onclick="setVendorDrillRange('${key}')">${label}</button>`
+  const customRow = _vendorDrill.range === 'custom' ? `
+    <div class="period-custom" style="display:flex;margin-top:.5rem">
+      <label class="form-label" style="margin:0">מ:</label>
+      <input type="date" id="vendorDrillCustomStart" value="${_vendorDrill.customStart || start}">
+      <label class="form-label" style="margin:0">עד:</label>
+      <input type="date" id="vendorDrillCustomEnd" value="${_vendorDrill.customEnd || end}">
+      <button class="btn-primary" style="padding:.35rem .9rem" onclick="applyVendorDrillCustom()">החל</button>
+    </div>` : ''
+
+  // Alias block: if multiple raw names map here OR this looks like one raw
+  // name the user may want to rename, show alias controls.
+  const existingAlias = getVendorAliases().find(a => a.displayName === displayName)
+  const aliasBlock = `
+    <div class="vendor-alias-panel">
+      <div class="vendor-alias-head">
+        🔗 איחוד שמות ספקים
+        ${existingAlias ? '<span class="vendor-alias-tag">קיים</span>' : ''}
+      </div>
+      <div class="vendor-alias-sub">כל ביטוי (שורה אחת לכל אחד) שיימצא בשם הספק יוצג מעתה כ־"${displayName}". ההאחדה חלה מיידית על כל העסקאות הקיימות ועל כל ייבוא עתידי.</div>
+      <div class="vendor-alias-body">
+        <label class="form-label">שם תצוגה</label>
+        <input id="vendorAliasDisplayName" value="${(existingAlias?.displayName || displayName).replace(/"/g, '&quot;')}">
+        <label class="form-label" style="margin-top:.6rem">ביטויים לזיהוי (שורה לכל אחד)</label>
+        <textarea id="vendorAliasPatterns" rows="3" placeholder="למשל:&#10;משיכת שיק 2500&#10;שיק שכירות">${(existingAlias?.patterns || rawNames).join('\n')}</textarea>
+        <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem">
+          ${existingAlias ? `<button class="btn-danger" style="font-size:.8rem;padding:.35rem .8rem" onclick="deleteVendorAliasFromDrill('${existingAlias.id}')">מחק איחוד</button>` : ''}
+          <button class="btn-primary" style="font-size:.8rem;padding:.35rem .8rem" onclick="saveVendorAliasFromDrill(${existingAlias ? `'${existingAlias.id}'` : 'null'})">${existingAlias ? 'עדכן איחוד' : 'צור איחוד'}</button>
+        </div>
+      </div>
+    </div>`
+
+  const rawList = rawNames.length > 1
+    ? `<div class="vendor-raw-list">נמצא תחת ${rawNames.length} שמות גולמיים: ${rawNames.map(r => `<span class="vendor-raw-chip">${r}</span>`).join(' ')}</div>`
+    : ''
+
+  const rows = filtered.length === 0
+    ? `<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-muted)">אין עסקאות בתקופה</td></tr>`
+    : filtered.map(t => {
+        const cat = getCategoryById(t.categoryId)
+        const acc = getAccounts().find(a => a.id === t.accountId)
+        return `
+          <tr>
+            <td>${formatDate(t.date)}</td>
+            <td style="font-weight:500">${t.vendor || '—'}</td>
+            <td style="font-size:.78rem;color:var(--text-muted)">${acc?.name || '—'}</td>
+            <td>${cat ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon||''} ${cat.name}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+            <td class="${t.amount>0?'amount-inc':'amount-exp'}" style="font-weight:600">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
+          </tr>`
+      }).join('')
+
+  document.getElementById('vendorDrillBody').innerHTML = `
+    <div class="period-selector" style="margin-bottom:1rem">
+      <div class="period-presets">
+        ${rangeBtn('3m', '3 חודשים')}
+        ${rangeBtn('6m', '6 חודשים')}
+        ${rangeBtn('12m', '12 חודשים')}
+        ${rangeBtn('all', 'הכל')}
+        ${rangeBtn('custom', 'טווח מותאם')}
+      </div>
+      ${customRow}
+    </div>
+    <div class="drill-stats">
+      <div><span class="drill-stat-label">עסקאות</span><span class="drill-stat-val">${filtered.length}</span></div>
+      <div><span class="drill-stat-label">סה"כ</span><span class="drill-stat-val ${totalAmount>=0?'income-color':'expense-color'}">${totalAmount>=0?'+':''}${formatCurrency(totalAmount)}</span></div>
+      <div><span class="drill-stat-label">ממוצע</span><span class="drill-stat-val">${formatCurrency(avg)}</span></div>
+      <div><span class="drill-stat-label">טווח</span><span class="drill-stat-val" style="font-size:.85rem">${formatDate(start)} – ${formatDate(end)}</span></div>
+    </div>
+    ${rawList}
+    ${aliasBlock}
+    <div style="overflow-x:auto;margin-top:1rem">
+      <table class="data-table">
+        <thead><tr><th>תאריך</th><th>ספק (מקור)</th><th>חשבון</th><th>קטגוריה</th><th style="text-align:left">סכום</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`
+}
+
+function saveVendorAliasFromDrill(existingId) {
+  const displayName = document.getElementById('vendorAliasDisplayName').value.trim()
+  const patternsRaw = document.getElementById('vendorAliasPatterns').value
+  const patterns = patternsRaw.split('\n').map(s => s.trim()).filter(Boolean)
+  if (!displayName) { alert('שם תצוגה חובה'); return }
+  if (patterns.length === 0) { alert('יש להזין לפחות ביטוי אחד'); return }
+  if (existingId && existingId !== 'null') {
+    updateVendorAlias(existingId, patterns, displayName)
+  } else {
+    addVendorAlias(patterns, displayName)
+  }
+  if (_vendorDrill) _vendorDrill.displayName = displayName
+  _renderVendorDrill()
+  // Re-render the analysis screen so top vendors + breakdown reflect alias
+  _drawAnalysis()
+}
+
+function deleteVendorAliasFromDrill(id) {
+  if (!confirm('למחוק את האיחוד? שמות גולמיים יוצגו כמו שהם.')) return
+  deleteVendorAlias(id)
+  _renderVendorDrill()
+  _drawAnalysis()
 }
 
 // ===== CHAT =====

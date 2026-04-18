@@ -1,7 +1,10 @@
 // ===== RECURRING DETECTION =====
 
 function _normalizeVendor(v) {
-  return (v || '').toString().toLowerCase().replace(/[0-9]+/g, '').replace(/\s+/g, ' ').trim()
+  // Resolve through vendor aliases FIRST so different raw strings mapped to
+  // the same display name ("משיכת שיק 2500" + "דמי שכירות") group together.
+  const resolved = (typeof resolveVendor === 'function') ? resolveVendor(v) : v
+  return (resolved || '').toString().toLowerCase().replace(/[0-9]+/g, '').replace(/\s+/g, ' ').trim()
 }
 
 function _daysBetween(a, b) {
@@ -64,7 +67,7 @@ function detectRecurring() {
     const avgAmount = filtered.reduce((s,t)=>s+t.amount,0) / filtered.length
     out.push({
       key,
-      vendor: filtered[filtered.length-1].vendor,
+      vendor: resolveVendor(filtered[filtered.length-1].vendor),
       cadence: cadence.cadence,
       cadenceLabel: cadence.label,
       cadenceDays: cadence.days,
@@ -282,7 +285,7 @@ function applyDrillCustom() {
 function _renderDrillModal() {
   if (!_drillKey) return
   const allTx = getTransactions().filter(t => _normalizeVendor(t.vendor) === _drillKey)
-  const vendor = allTx[0]?.vendor || _drillKey
+  const vendor = (allTx[0] && resolveVendor(allTx[0].vendor)) || _drillKey
   document.getElementById('drillTitle').textContent = `היסטוריית "${vendor}"`
 
   const { start, end } = _getDrillBounds()
@@ -313,7 +316,7 @@ function _renderDrillModal() {
         return `
           <tr>
             <td>${formatDate(t.date)}</td>
-            <td style="font-weight:500">${t.vendor || '—'}</td>
+            <td style="font-weight:500">${resolveVendor(t.vendor) || '—'}</td>
             <td>${cat ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon||''} ${cat.name}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
             <td class="${t.amount>0?'amount-inc':'amount-exp'}" style="font-weight:600">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
           </tr>`

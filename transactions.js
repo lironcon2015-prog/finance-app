@@ -82,7 +82,10 @@ function _getFiltered() {
           || (t.type === 'transfer' && (t.transferAccountId === flowAcc || t.ccPaymentForAccountId === flowAcc))
         if (!touches) return false
       }
-      if (search && !((t.vendor||'')+(t.description||'')).toLowerCase().includes(search)) return false
+      if (search) {
+        const hay = ((t.vendor||'') + (t.description||'') + (resolveVendor(t.vendor)||'')).toLowerCase()
+        if (!hay.includes(search)) return false
+      }
       return true
     })
     .sort((a,b) => (b.date||'').localeCompare(a.date||''))
@@ -151,7 +154,7 @@ function _drawTxTable() {
           const balCell = showRunningBalance ? `<td style="font-weight:500">${formatCurrency(rowBalances[tx.id] ?? 0)}</td>` : ''
           return `<tr ${isNonCounted?'class="tx-noncounted"':''}>
             <td>${formatDate(tx.date)}</td>
-            <td><div style="font-weight:500">${tx.vendor||'—'}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
+            <td><div style="font-weight:500">${resolveVendor(tx.vendor)||'—'}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
             <td>${catBadge}</td>
             <td class="${amountCls}">${tx.amount>0?'+':''}${formatCurrency(tx.amount)}</td>
             <td><span class="type-badge ${TYPE_CLS[tx.type]||'type-expense'}">${TYPE_LABEL[tx.type]||tx.type}</span></td>

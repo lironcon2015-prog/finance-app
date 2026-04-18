@@ -285,6 +285,7 @@
       <button class="tab-btn" onclick="switchTab('prompt',this)">הנחיות AI</button>
       <button class="tab-btn" onclick="switchTab('templates',this)">תבניות ייבוא</button>
       <button class="tab-btn" onclick="switchTab('rules',this)">כללי סיווג</button>
+      <button class="tab-btn" onclick="switchTab('aliases',this)">איחוד ספקים</button>
       <button class="tab-btn" onclick="switchTab('data',this)">ניהול נתונים</button>
       <button class="tab-btn" onclick="switchTab('backup',this)">גיבוי</button>
     </div>
@@ -423,6 +424,29 @@
       </div>
     </div>
 
+    <div class="tab-panel" id="tab-aliases" style="display:none">
+      <div class="card">
+        <div class="card-title">איחוד ספקים</div>
+        <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem">
+          לאחד כמה שמות גולמיים שונים תחת שם תצוגה אחד (למשל "משיכת שיק 2500" ו-"שיק #4123" → "דמי שכירות").
+          ההאחדה חלה מיידית על כל העסקאות הקיימות ועל כל ייבוא עתידי — הנתונים הגולמיים נשמרים, רק התצוגה משתנה.
+          אפשר גם ליצור איחוד ישירות מטופ הספקים בניתוח התזרים.
+        </p>
+        <div class="form-row" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem">
+          <div style="flex:1;min-width:180px">
+            <label class="form-label">שם תצוגה</label>
+            <input type="text" id="aliasInputDisplay" placeholder="למשל: דמי שכירות">
+          </div>
+          <div style="flex:2;min-width:220px">
+            <label class="form-label">ביטויים לזיהוי (מופרדים בפסיקים)</label>
+            <input type="text" id="aliasInputPatterns" placeholder="שיק 2500, שיק 4123">
+          </div>
+          <button class="btn-primary" onclick="addAliasFromForm()">הוסף איחוד</button>
+        </div>
+        <div id="aliasList"></div>
+      </div>
+    </div>
+
     <div class="tab-panel" id="tab-data" style="display:none">
       <div class="card">
         <div class="card-title">ייבואים קודמים</div>
@@ -495,6 +519,34 @@
   </div>
 </div>
 
+<!-- Expense breakdown (all categories) -->
+<div class="modal-overlay" id="expenseBreakdownModal">
+  <div class="modal-box" style="max-width:640px">
+    <div class="modal-header">
+      <h3>פירוט הוצאות – כל הקטגוריות</h3>
+      <button class="modal-close" onclick="closeExpenseBreakdownModal()">✕</button>
+    </div>
+    <div id="expenseBreakdownModalBody"></div>
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem">
+      <button class="btn-ghost" onclick="closeExpenseBreakdownModal()">סגור</button>
+    </div>
+  </div>
+</div>
+
+<!-- Vendor drill-down + alias editor -->
+<div class="modal-overlay" id="vendorDrillModal">
+  <div class="modal-box" style="max-width:860px">
+    <div class="modal-header">
+      <h3 id="vendorDrillTitle">עסקאות ספק</h3>
+      <button class="modal-close" onclick="closeVendorDrill()">✕</button>
+    </div>
+    <div id="vendorDrillBody"></div>
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem">
+      <button class="btn-ghost" onclick="closeVendorDrill()">סגור</button>
+    </div>
+  </div>
+</div>
+
 <!-- Recurring drill-down -->
 <div class="modal-overlay" id="recurringDrillModal">
   <div class="modal-box" style="max-width:820px">
@@ -547,19 +599,19 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.8.4';</script>
-<script src="app.js?v=1.8.4"></script>
-<script src="core.js?v=1.8.4"></script>
-<script src="templates.js?v=1.8.4"></script>
-<script src="autocat.js?v=1.8.4"></script>
-<script src="budget.js?v=1.8.4"></script>
-<script src="recurring.js?v=1.8.4"></script>
-<script src="dashboard.js?v=1.8.4"></script>
-<script src="transactions.js?v=1.8.4"></script>
-<script src="wizard.js?v=1.8.4"></script>
-<script src="import.js?v=1.8.4"></script>
-<script src="analysis.js?v=1.8.4"></script>
-<script src="settings.js?v=1.8.4"></script>
+<script>const _v = '1.8.5';</script>
+<script src="app.js?v=1.8.5"></script>
+<script src="core.js?v=1.8.5"></script>
+<script src="templates.js?v=1.8.5"></script>
+<script src="autocat.js?v=1.8.5"></script>
+<script src="budget.js?v=1.8.5"></script>
+<script src="recurring.js?v=1.8.5"></script>
+<script src="dashboard.js?v=1.8.5"></script>
+<script src="transactions.js?v=1.8.5"></script>
+<script src="wizard.js?v=1.8.5"></script>
+<script src="import.js?v=1.8.5"></script>
+<script src="analysis.js?v=1.8.5"></script>
+<script src="settings.js?v=1.8.5"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

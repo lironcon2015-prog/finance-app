@@ -12,7 +12,64 @@ function renderSettings() {
   renderImportBatches()
   renderTemplatesList()
   renderRulesList()
+  renderAliasList()
   document.getElementById('appVersion').textContent = 'גרסה ' + APP_VERSION
+}
+
+// ===== VENDOR ALIASES =====
+function renderAliasList() {
+  const el = document.getElementById('aliasList')
+  if (!el) return
+  const aliases = getVendorAliases()
+  if (aliases.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:.9rem;padding:1rem 0">אין איחודי ספקים. הוסף מכאן או ישירות מטופ הספקים בניתוח.</div>'
+    return
+  }
+  el.innerHTML = `
+    <div class="rules-table-head">
+      <div>שם תצוגה</div>
+      <div>ביטויים</div>
+      <div></div>
+    </div>
+    ${aliases.map(a => `
+      <div class="rules-row">
+        <div class="rules-pattern" style="font-weight:600">${a.displayName}</div>
+        <div class="rules-cat">${(a.patterns || []).map(p => `<span class="vendor-raw-chip">${p}</span>`).join(' ')}</div>
+        <div style="display:flex;gap:.4rem">
+          <button class="btn-ghost" style="font-size:.8rem;padding:.3rem .7rem" onclick="editAliasPrompt('${a.id}')">ערוך</button>
+          <button class="btn-danger" onclick="removeAlias('${a.id}')">מחק</button>
+        </div>
+      </div>`).join('')}`
+}
+
+function addAliasFromForm() {
+  const displayName = document.getElementById('aliasInputDisplay').value.trim()
+  const patternsRaw = document.getElementById('aliasInputPatterns').value
+  const patterns = patternsRaw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
+  if (!displayName || patterns.length === 0) { alert('שם תצוגה וביטוי אחד לפחות חובה'); return }
+  addVendorAlias(patterns, displayName)
+  document.getElementById('aliasInputDisplay').value = ''
+  document.getElementById('aliasInputPatterns').value = ''
+  renderAliasList()
+}
+
+function editAliasPrompt(id) {
+  const alias = getVendorAliases().find(a => a.id === id)
+  if (!alias) return
+  const newDisplay = prompt('שם תצוגה:', alias.displayName)
+  if (newDisplay === null) return
+  const newPatterns = prompt('ביטויים לזיהוי (שורה/פסיק לכל אחד):', (alias.patterns || []).join(', '))
+  if (newPatterns === null) return
+  const patterns = newPatterns.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
+  if (!newDisplay.trim() || patterns.length === 0) { alert('שם תצוגה וביטוי אחד לפחות חובה'); return }
+  updateVendorAlias(id, patterns, newDisplay.trim())
+  renderAliasList()
+}
+
+function removeAlias(id) {
+  if (!confirm('למחוק את האיחוד? שמות גולמיים יוצגו כמו שהם.')) return
+  deleteVendorAlias(id)
+  renderAliasList()
 }
 
 function renderRulesList() {
@@ -218,8 +275,13 @@ function renderAccountList() {
   document.getElementById('accList').innerHTML = accounts.length === 0
     ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין חשבונות. לחץ "חשבון חדש" להוסיף.</p>'
     : accounts.map(a => {
-        const bal = getAccountBalance(a.id)
-        const balColor = bal >= 0 ? 'var(--income)' : 'var(--expense)'
+        const showBalance = PL_ACCOUNT_TYPES.has(a.type)
+        let balLine = ''
+        if (showBalance) {
+          const bal = getAccountBalance(a.id)
+          const balColor = bal >= 0 ? 'var(--income)' : 'var(--expense)'
+          balLine = ` · יתרה: <span style="color:${balColor}">${formatCurrency(bal)}</span>`
+        }
         const patternsBtn = PATTERN_BEARING_TYPES.includes(a.type)
           ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .7rem" onclick="editAccountPatterns('${a.id}')">דפוסי זיהוי (${(a.paymentVendorPatterns||[]).length})</button>`
           : ''
@@ -227,7 +289,7 @@ function renderAccountList() {
         <div class="list-item">
           <div style="flex:1">
             <div class="list-item-name">${a.name}</div>
-            <div class="list-item-sub">${TYPE[a.type]||a.type}${a.institution?' · '+a.institution:''} · יתרה: <span style="color:${balColor}">${formatCurrency(bal)}</span></div>
+            <div class="list-item-sub">${TYPE[a.type]||a.type}${a.institution?' · '+a.institution:''}${balLine}</div>
           </div>
           <div style="display:flex;gap:.4rem;align-items:center">
             ${patternsBtn}

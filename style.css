@@ -454,3 +454,14 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .drill-stats > div { background: var(--bg-elev); border: 1px solid var(--border); border-radius: .5rem; padding: .6rem .8rem; display: flex; flex-direction: column; gap: .2rem; }
 .drill-stat-label { font-size: .75rem; color: var(--text-muted); }
 .drill-stat-val { font-weight: 700; font-size: 1rem; }
+
+/* ===== Top vendors + vendor drill ===== */
+.top-vendors-table tr.vendor-row { cursor: pointer; transition: background .15s; }
+.top-vendors-table tr.vendor-row:hover { background: rgba(59,130,246,.08); }
+.vendor-raw-list { margin-top: 1rem; font-size: .82rem; color: var(--text-muted); }
+.vendor-raw-chip { display: inline-block; background: var(--bg-elevated); border: 1px solid var(--border); padding: .15rem .55rem; border-radius: 20px; font-size: .75rem; margin: .15rem; color: var(--text-secondary); }
+.vendor-alias-panel { margin-top: 1rem; padding: .85rem 1rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .6rem; }
+.vendor-alias-head { font-weight: 700; font-size: .9rem; display: flex; align-items: center; gap: .5rem; }
+.vendor-alias-tag { background: var(--accent-dim); color: var(--accent); font-size: .7rem; padding: .1rem .55rem; border-radius: 20px; font-weight: 600; }
+.vendor-alias-sub { font-size: .78rem; color: var(--text-muted); margin: .35rem 0 .75rem; line-height: 1.5; }
+.vendor-alias-body textarea { width: 100%; font-family: inherit; font-size: .85rem; resize: vertical; }

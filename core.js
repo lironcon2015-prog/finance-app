@@ -425,3 +425,75 @@ function matchVendorToCategory(vendor, description) {
   }
   return ''
 }
+
+// ===== VENDOR ALIASES =====
+// Unifies different raw vendor strings under a single user-facing display
+// name. For example: "משיכת שיק 2500" + "שיק 2500 #4123" → "דמי שכירות".
+// Applied at render time everywhere a vendor is shown; grouping logic
+// (recurring detection, top vendors, etc.) also uses the resolved name so
+// aliased transactions cluster together.
+//
+// Storage shape: [{ id, patterns: ['pattern1','pattern2'], displayName, createdAt }]
+// Matching is case-insensitive substring. Longer patterns win (so a specific
+// "shufersal express" beats a generic "shufersal"). Exact match also trumps.
+
+let _vendorAliasIdx = null
+let _vendorAliasIdxTs = 0
+
+function getVendorAliases() { return DB.get('finVendorAliases', []) }
+function saveVendorAliases(list) {
+  DB.set('finVendorAliases', list)
+  _vendorAliasIdx = null
+}
+function invalidateVendorAliasCache() { _vendorAliasIdx = null }
+
+function _getVendorAliasIndex() {
+  const now = Date.now()
+  if (_vendorAliasIdx && now - _vendorAliasIdxTs < 500) return _vendorAliasIdx
+  const aliases = getVendorAliases()
+  const idx = []
+  aliases.forEach(a => {
+    (a.patterns || []).forEach(p => {
+      const needle = String(p || '').trim().toLowerCase()
+      if (needle) idx.push({ id: a.id, needle, displayName: a.displayName })
+    })
+  })
+  idx.sort((a, b) => b.needle.length - a.needle.length)
+  _vendorAliasIdx = idx
+  _vendorAliasIdxTs = now
+  return idx
+}
+
+function resolveVendor(rawVendor) {
+  if (!rawVendor) return rawVendor
+  const lower = String(rawVendor).toLowerCase()
+  for (const { needle, displayName } of _getVendorAliasIndex()) {
+    if (lower.includes(needle)) return displayName
+  }
+  return rawVendor
+}
+
+function addVendorAlias(patterns, displayName) {
+  const list = getVendorAliases()
+  const patternsArr = (Array.isArray(patterns) ? patterns : [patterns])
+    .map(p => String(p || '').trim()).filter(Boolean)
+  if (patternsArr.length === 0 || !displayName) return null
+  const entry = { id: genId(), patterns: patternsArr, displayName: String(displayName).trim(), createdAt: Date.now() }
+  list.push(entry)
+  saveVendorAliases(list)
+  return entry
+}
+
+function updateVendorAlias(id, patterns, displayName) {
+  const list = getVendorAliases()
+  const idx = list.findIndex(a => a.id === id)
+  if (idx < 0) return
+  list[idx].patterns = (Array.isArray(patterns) ? patterns : [patterns])
+    .map(p => String(p || '').trim()).filter(Boolean)
+  list[idx].displayName = String(displayName || '').trim()
+  saveVendorAliases(list)
+}
+
+function deleteVendorAlias(id) {
+  saveVendorAliases(getVendorAliases().filter(a => a.id !== id))
+}
