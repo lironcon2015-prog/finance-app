@@ -28,6 +28,40 @@
 - Refund עם `amount > 0` מקטין הוצאות, לא נספר כהכנסה.
 - UI בעברית RTL, מטבע ILS, Chart.js לגרפים, Gemini 2.5 ל-parsing של דוחות.
 
+## Design principles (not obvious from code)
+
+### P&L scope = checking + cash בלבד
+`PL_ACCOUNT_TYPES` מוגדר רק ל-`checking`+`cash` בכוונה. CC/חיסכון/השקעות מכילים "פירוט" של תנועות שגם מופיעות כחיוב מרוכז בעו"ש — ספירה של שניהם = double counting. בנוסף, יתרות CC/חיסכון לא אמינות בלי נתונים בזמן אמת, ולכן הן לא מוצגות בדשבורד / הגדרות.
+
+### Cross-account mirror pattern
+שני דגלים אופציונליים על עסקה קושרים צדדים בלי לשבור P&L:
+- `ccPaymentForAccountId` — חיוב CC מרוכז בבנק: נספר כהוצאה (P&L), משקף לקיזוז יתרת ה-CC.
+- `transferAccountId` — הפקדה לחיסכון/השקעות: נספרת כהוצאה בבנק (קטגוריית "חסכונות והשקעות"), משקפת הוספה לצד השני.
+שני הצדדים מתעדכנים ב-`getAccountBalance` אבל הדגלים **אינם** `type='transfer'` — זה עיקרון: transfer אמיתי לא נספר ב-P&L, ואילו הדגלים האלה כן נספרים (הכסף באמת יצא).
+
+### Category flags — isSavings / isSavingsReduction
+- `isSavings` (על קטגוריות הוצאה): נספר כהוצאה רגילה, אבל `sumHiddenSavings` מאפשר להציג אותו בנפרד בדשבורד ולהוסיף חזרה ל"אחוז חיסכון אמיתי" בניתוח.
+- `isSavingsReduction` (על קטגוריות הכנסה): דיבידנד/מכירת ני"ע/משיכת חיסכון. נספר בהכנסות הרגילות, אבל מנוטרל מהמונה וגם מהמכנה של אחוז החיסכון האמיתי (לא הכנסה טרייה).
+
+### Vendor aliases (resolveVendor)
+כל הצגה של vendor חייבת לעבור דרך `resolveVendor()`. ה-aliases מאחסנים רשימת patterns → displayName ומתאימים substring longest-first. מתפרסמים גם ב-grouping (recurring, top vendors) כדי שעסקאות אותו "ספק לוגי" יאוחדו גם אם שמם הגולמי שונה.
+
+### Analysis scope ≠ Dashboard scope
+הדשבורד משתמש ב-`countedExpenseAmount` (PL only — חיובי CC מרוכזים).
+הניתוח משתמש ב-`analysisExpenseAmount` (כולל פירוט CC, פרט לשורת התשלום המרוכזת) — כדי לקבל פיזור קטגוריות מדויק.
+
+### Cache invalidation
+יש caches עם TTL 500ms ב-`core.js`: `_plAcctIdsCache`, `_savingsCatCache`, `_capitalIncomeCatCache`, `_vendorAliasIdx`. אחרי שינוי מקור (חשבונות/קטגוריות/aliases) חובה לקרוא ל-`invalidate*Cache` המתאים, אחרת הטבלאות ב-UI מסתכנות בסטייל במשך חצי שנייה.
+
+### Convention: modal class = `.open`
+כל ה-modals פועלים לפי `.open` (לא `.show`). כך גם `#sidebar`/`#sidebarOverlay`.
+
+### Idx→key map עבור onclick עם עברית
+משתנים שמכילים עברית/סימני פיסוק (`vendor`, `recurring.key`) לא שורדים inline `onclick="..."` — ה-escape נשבר. הדפוס: `_recKeyMap`/`_topVendorMap` ממפים `'k0','v0',...` למפתח האמיתי; ה-onclick מעביר את ה-idx הבטוח ופונקציית wrapper מחפשת במפה.
+
+### מיגרציות
+כל מיגרציה מסומנת ב-flag של localStorage (`migration_*`). רצה פעם אחת בהפעלה ואז מדלגת. למחיקה ידנית לבדיקה — DevTools → Application → LocalStorage.
+
 ## Testing
 
 אין test suite אוטומטי. בדיקה ידנית:
