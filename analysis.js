@@ -18,30 +18,41 @@ function _drawAnalysis() {
   const income         = sumIncome(periodTx)
   const expenses       = sumExpenses(periodTx)
   const hiddenSavings  = sumHiddenSavings(periodTx)
+  const capitalIncome  = sumCapitalIncome(periodTx)
   const net            = income - expenses
-  // "True savings rate" treats the hidden-savings expenses as kept money:
-  // (net + hiddenSavings) / income — i.e., percent of income the user did
-  // NOT consume, whether by not spending or by routing into a savings bucket.
-  const pnlPct      = income > 0 ? (net / income * 100) : 0
-  const savingsPct  = income > 0 ? ((net + hiddenSavings) / income * 100) : 0
-  const hasHidden   = hiddenSavings > 0
+  // "True savings rate" treats hidden-savings expenses as kept money and
+  // strips capital income (dividends, asset sales, savings withdrawals)
+  // so it reflects only what we saved out of real earned income:
+  //   realIncome   = income - capitalIncome
+  //   realSavings  = net + hiddenSavings - capitalIncome
+  //   savingsPct   = realSavings / realIncome
+  const pnlPct       = income > 0 ? (net / income * 100) : 0
+  const realIncome   = income - capitalIncome
+  const realSavings  = net + hiddenSavings - capitalIncome
+  const savingsPct   = realIncome > 0 ? (realSavings / realIncome * 100) : 0
+  const hasHidden    = hiddenSavings > 0
+  const hasCapital   = capitalIncome > 0
+  const showSavingsCard = hasHidden || hasCapital
 
   const cards = [
     { label: 'סך הכנסות', value: income,   color: 'var(--income)',  icon: '📈', bg: 'var(--income-bg)' },
     { label: 'סך הוצאות', value: expenses, color: 'var(--expense)', icon: '📉', bg: 'var(--expense-bg)' },
     { label: 'רווח / הפסד', value: net,    color: net>=0?'var(--income)':'var(--expense)', icon: '⚖️', bg: net>=0?'var(--income-bg)':'var(--expense-bg)' },
-    { label: hasHidden ? 'רווח/הפסד כאחוז מהכנסה' : 'אחוז חיסכון', value: pnlPct,
+    { label: showSavingsCard ? 'רווח/הפסד כאחוז מהכנסה' : 'אחוז חיסכון', value: pnlPct,
       color: pnlPct>=0?'var(--income)':'var(--expense)', icon: '🎯',
       bg: pnlPct>=0?'var(--income-bg)':'var(--expense-bg)', pct: true,
-      tooltip: '(הכנסות − הוצאות) / הכנסות — אותו חישוב כמו בעבר (רווח/הפסד מתוך הכנסה)' },
+      tooltip: '(הכנסות − הוצאות) / הכנסות — רווח/הפסד מתוך סך ההכנסה' },
   ]
-  if (hasHidden) {
+  if (showSavingsCard) {
+    const parts = []
+    if (hasHidden)  parts.push(`+ ${formatCurrency(hiddenSavings)} חסכונות חבויים`)
+    if (hasCapital) parts.push(`− ${formatCurrency(capitalIncome)} הכנסה הונית`)
     cards.push({
-      label: 'אחוז חיסכון כולל (כולל חסכונות חבויים)',
+      label: 'אחוז חיסכון אמיתי',
       value: savingsPct,
       color: savingsPct>=0?'var(--income)':'var(--expense)', icon: '🪙',
       bg: savingsPct>=0?'var(--income-bg)':'var(--expense-bg)', pct: true,
-      tooltip: '(נטו + חסכונות חבויים) / הכנסות — מוסיף בחזרה הוצאות שסימנת כחיסכון'
+      tooltip: `(נטו ${parts.join(' ')}) / (הכנסות − הכנסה הונית)\n\nמוסיף בחזרה הוצאות שסומנו כחיסכון, ומנטרל הכנסות שהן למעשה שבירת חיסכון/דיבידנד.`
     })
   }
   document.getElementById('pnlStats').innerHTML = cards.map(s => `
@@ -79,11 +90,11 @@ function _drawAnalysis() {
 }
 
 function _renderExpensePie(periodTx) {
+  const savingsInvestIds = analysisExpenseSavingsInvestIds()
   const expByCat = {}
   periodTx.forEach(t => {
-    const ca = countedExpenseAmount(t)
+    const ca = analysisExpenseAmount(t, savingsInvestIds)
     if (ca <= 0) return
-    if (t.ccPaymentForAccountId) return
     const cat = getCategoryById(t.categoryId)
     const key = cat?.id || '__none__'
     if (!expByCat[key]) expByCat[key] = { name: cat?.name||'לא מסווג', color: cat?.color||'#64748b', total: 0 }
@@ -112,12 +123,12 @@ function _renderExpensePie(periodTx) {
 }
 
 function _renderExpenseBreakdown(periodTx) {
+  const savingsInvestIds = analysisExpenseSavingsInvestIds()
   const expByCat = {}
   let totalForPct = 0
   periodTx.forEach(t => {
-    const ca = countedExpenseAmount(t)
+    const ca = analysisExpenseAmount(t, savingsInvestIds)
     if (ca <= 0) return
-    if (t.ccPaymentForAccountId) return
     const cat = getCategoryById(t.categoryId)
     const key = cat?.id || '__none__'
     if (!expByCat[key]) expByCat[key] = { name: cat?.name || 'לא מסווג', color: cat?.color || '#64748b', total: 0 }
@@ -140,11 +151,12 @@ function _renderExpenseBreakdown(periodTx) {
 }
 
 function _renderIncomeBreakdown(periodTx, income) {
+  const capIds = getCapitalIncomeCategoryIds()
   const incByCat = {}
   periodTx.filter(isCountedIncome).forEach(t => {
     const cat = getCategoryById(t.categoryId)
     const key = cat?.id || '__none__'
-    if (!incByCat[key]) incByCat[key] = { name: cat?.name||'לא מסווג', color: cat?.color||'#22c55e', total: 0 }
+    if (!incByCat[key]) incByCat[key] = { name: cat?.name||'לא מסווג', color: cat?.color||'#22c55e', total: 0, isCapital: !!(cat && capIds.has(cat.id)) }
     incByCat[key].total += t.amount
   })
   const incRows = Object.values(incByCat).sort((a,b)=>b.total-a.total)
@@ -153,7 +165,7 @@ function _renderIncomeBreakdown(periodTx, income) {
     : incRows.map(r => `
       <div class="cat-bar-item">
         <div class="cat-bar-header">
-          <span>${r.name}</span>
+          <span>${r.name}${r.isCapital ? ' <span class="cat-capital-badge" title="הכנסה הונית — מנוכה מאחוז החיסכון האמיתי">📉</span>' : ''}</span>
           <span style="color:var(--income);font-weight:600">${formatCurrency(r.total)}</span>
         </div>
         <div class="cat-bar-track">

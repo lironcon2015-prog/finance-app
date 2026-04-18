@@ -70,6 +70,53 @@ function sumHiddenSavings(txs) {
   return txs.reduce((s, t) => s + (isHiddenSavings(t) ? countedExpenseAmount(t) : 0), 0)
 }
 
+// ===== "CAPITAL INCOME" — income categories tagged isSavingsReduction =====
+// Income that is actually savings depletion (dividends, security sales,
+// savings-account withdrawals). Still counted as income in raw sumIncome,
+// but the savings-rate calculator subtracts it so the rate reflects only
+// true earned income.
+let _capitalIncomeCatCache = null
+let _capitalIncomeCatCacheTs = 0
+function getCapitalIncomeCategoryIds() {
+  const now = Date.now()
+  if (!_capitalIncomeCatCache || now - _capitalIncomeCatCacheTs > 500) {
+    _capitalIncomeCatCache = new Set(getCategories().filter(c => c.isSavingsReduction).map(c => c.id))
+    _capitalIncomeCatCacheTs = now
+  }
+  return _capitalIncomeCatCache
+}
+function invalidateCapitalIncomeCache() { _capitalIncomeCatCache = null }
+
+function isCapitalIncome(t) {
+  return isCountedIncome(t) && t.categoryId && getCapitalIncomeCategoryIds().has(t.categoryId)
+}
+function sumCapitalIncome(txs) {
+  return txs.reduce((s, t) => s + (isCapitalIncome(t) ? t.amount : 0), 0)
+}
+
+// ===== ANALYSIS EXPENSE SCOPE =====
+// For the analysis screen's expense breakdown/pie, we want the DETAILED picture:
+// show individual CC purchases with their categories instead of the lump-sum
+// bank payment. Rules:
+//   - skip transfers (internal money movement)
+//   - skip the aggregate bank payment line (has ccPaymentForAccountId) —
+//     its breakdown is the CC detail rows
+//   - skip savings/investment account rows — prefer the bank-side transfer
+//     (which already carries the "savings" category)
+//   - include negative amounts on bank (checking/cash) AND on CC accounts,
+//     treating refunds as a negative expense
+function analysisExpenseAmount(t, savingsInvestIds) {
+  if (t.type === 'transfer') return 0
+  if (t.ccPaymentForAccountId) return 0
+  if (savingsInvestIds && savingsInvestIds.has(t.accountId)) return 0
+  if (t.type === 'refund' && t.amount > 0) return -t.amount
+  if (t.amount < 0) return Math.abs(t.amount)
+  return 0
+}
+function analysisExpenseSavingsInvestIds() {
+  return new Set(getAccounts().filter(a => a.type === 'savings' || a.type === 'investment').map(a => a.id))
+}
+
 // ===== PERIOD PRESETS =====
 function _ym(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
 function _iso(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }

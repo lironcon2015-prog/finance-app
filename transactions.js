@@ -144,8 +144,8 @@ function _drawTxTable() {
         page.map(tx => {
           const cat = getCategoryById(tx.categoryId)
           const catBadge = cat
-            ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>`
-            : `<span style="color:var(--text-muted);font-size:.8rem">לא מסווג</span>`
+            ? `<span class="cat-badge cat-badge-clickable" onclick="filterTxByCategory('${cat.id}')" title="סנן לפי קטגוריה זו" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>`
+            : `<span class="cat-badge-clickable" onclick="filterTxByCategory('__none__')" title="סנן לפי לא־מסווג" style="color:var(--text-muted);font-size:.8rem">לא מסווג</span>`
           const isNonCounted = tx.type === 'transfer' || tx.type === 'refund'
           const amountCls = isNonCounted ? 'amount-muted' : (tx.amount>0?'amount-inc':'amount-exp')
           const balCell = showRunningBalance ? `<td style="font-weight:500">${formatCurrency(rowBalances[tx.id] ?? 0)}</td>` : ''
@@ -170,4 +170,13 @@ function _drawTxTable() {
     <button class="btn-ghost" onclick="_txPage=Math.max(0,_txPage-1);_drawTxTable()" ${_txPage===0?'disabled':''}>הקודם</button>
     <span class="page-info">${_txPage+1} / ${totalPages}</span>
     <button class="btn-ghost" onclick="_txPage=Math.min(${totalPages-1},_txPage+1);_drawTxTable()" ${_txPage===totalPages-1?'disabled':''}>הבא</button>`
+}
+
+// Click-to-filter from a category badge inside the table.
+function filterTxByCategory(catId) {
+  const sel = document.getElementById('txCategoryFilter')
+  if (!sel) return
+  sel.value = catId
+  _txPage = 0
+  _drawTxTable()
 }

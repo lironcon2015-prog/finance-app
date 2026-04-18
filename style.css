@@ -143,6 +143,8 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .type-income { background: var(--income-bg); color: var(--income); }
 .type-expense { background: var(--expense-bg); color: var(--expense); }
 .cat-badge { display: inline-flex; align-items: center; gap: .3rem; padding: .18rem .55rem; border-radius: 20px; font-size: .76rem; font-weight: 500; }
+.cat-badge-clickable { cursor: pointer; transition: filter .15s, transform .15s; }
+.cat-badge-clickable:hover { filter: brightness(1.25); transform: translateY(-1px); }
 .edit-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: .25rem; border-radius: 6px; transition: color .15s; }
 .edit-btn:hover { color: var(--accent); }
 
@@ -187,6 +189,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .cat-chip-edit { font-size: .85rem; color: var(--text-muted); opacity: .6; }
 .cat-chip:hover .cat-chip-edit { opacity: 1; }
 .cat-savings-badge { font-size: .85rem; margin-inline-start: .2rem; }
+.cat-capital-badge { font-size: .85rem; margin-inline-start: .2rem; }
 .cat-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
 /* ===== CHAT ===== */

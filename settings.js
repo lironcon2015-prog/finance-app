@@ -285,7 +285,7 @@ function renderCategoryList() {
           <div class="cat-chip" onclick="openCatEditModal('${c.id}')" style="cursor:pointer">
             <div class="cat-chip-left">
               <span class="cat-dot" style="background:${c.color}"></span>
-              ${c.icon} ${c.name}${c.isSavings ? ' <span class="cat-savings-badge" title="חיסכון חבוי">🪙</span>' : ''}
+              ${c.icon} ${c.name}${c.isSavings ? ' <span class="cat-savings-badge" title="חיסכון חבוי">🪙</span>' : ''}${c.isSavingsReduction ? ' <span class="cat-savings-badge" title="הכנסה הונית">📉</span>' : ''}
             </div>
             <span class="cat-chip-edit">✏️</span>
           </div>`).join('')}
@@ -319,12 +319,25 @@ function openCatEditModal(id) {
       </div>
     </div>`
 
+  const isCapitalRow = `
+    <div class="modal-row" id="catEditCapitalRow" style="display:${cat.type==='income'?'block':'none'}">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="catEditIsSavingsReduction" ${cat.isSavingsReduction?'checked':''} style="width:auto;margin:0">
+        <span>📉 הכנסה הונית (שבירת חיסכון/דיבידנד/מכירת ני"ע)</span>
+      </label>
+      <div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem;line-height:1.5">
+        הכנסות בקטגוריה זו ימשיכו להיכלל בסך ההכנסות, אבל ינוטרלו<br>
+        מ"אחוז החיסכון האמיתי" בניתוח התזרים — כי אינן הכנסה טרייה אלא שבירת חיסכון.
+      </div>
+    </div>`
+
   document.getElementById('catEditBody').innerHTML = `
     <div class="modal-row"><label class="form-label">שם</label><input id="catEditName" value="${cat.name}"></div>
     <div class="modal-row"><label class="form-label">אייקון (emoji)</label><input id="catEditIcon" value="${cat.icon || ''}" style="max-width:100px"></div>
     <div class="modal-row"><label class="form-label">צבע</label><input type="color" id="catEditColor" value="${cat.color || '#64748b'}"></div>
     <div class="modal-row"><label class="form-label">סוג</label><select id="catEditType" onchange="_onCatEditTypeChange()" ${cat.system?'disabled':''}>${typeOptions}</select></div>
     ${isSavingsRow}
+    ${isCapitalRow}
     <div style="font-size:.78rem;color:var(--text-muted);padding:.5rem .1rem 0">שינויים בשם/אייקון/צבע יחולו מיידית על כל העסקאות הקיימות והעתידיות בקטגוריה.</div>`
   document.getElementById('catEditModal').classList.add('open')
 }
@@ -332,6 +345,8 @@ function openCatEditModal(id) {
 function _onCatEditTypeChange() {
   const t = document.getElementById('catEditType').value
   document.getElementById('catEditSavingsRow').style.display = t === 'expense' ? 'block' : 'none'
+  const capRow = document.getElementById('catEditCapitalRow')
+  if (capRow) capRow.style.display = t === 'income' ? 'block' : 'none'
 }
 
 function closeCatEditModal() {
@@ -352,8 +367,11 @@ function saveCatEdit() {
   if (!cats[idx].system) cats[idx].type = document.getElementById('catEditType').value
   const isSavingsInput = document.getElementById('catEditIsSavings')
   cats[idx].isSavings = cats[idx].type === 'expense' && isSavingsInput && isSavingsInput.checked
+  const isCapitalInput = document.getElementById('catEditIsSavingsReduction')
+  cats[idx].isSavingsReduction = cats[idx].type === 'income' && isCapitalInput && isCapitalInput.checked
   DB.set('finCategories', cats)
   if (typeof invalidateSavingsCache === 'function') invalidateSavingsCache()
+  if (typeof invalidateCapitalIncomeCache === 'function') invalidateCapitalIncomeCache()
   closeCatEditModal()
   renderSettings()
 }
@@ -365,6 +383,7 @@ function deleteFromCatModal() {
   if (!confirm('למחוק את הקטגוריה? עסקאות שסווגו אליה יוצגו כלא־מסווגות.')) return
   DB.set('finCategories', getCategories().filter(c => c.id !== _catEditId))
   if (typeof invalidateSavingsCache === 'function') invalidateSavingsCache()
+  if (typeof invalidateCapitalIncomeCache === 'function') invalidateCapitalIncomeCache()
   closeCatEditModal()
   renderSettings()
 }
