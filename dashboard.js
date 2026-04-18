@@ -9,21 +9,31 @@ function renderDashboard() {
   const all = getTransactions()
   const periodTx = filterByPeriod(all, period)
 
-  const income   = sumIncome(periodTx)
-  const expenses = sumExpenses(periodTx)
-  const net      = income - expenses
-  const liquid   = getLiquidBalance()
-  const hiddenSavings = sumHiddenSavings(periodTx)
+  const income         = sumIncome(periodTx)
+  const expenses       = sumExpenses(periodTx)
+  const net            = income - expenses
+  const hiddenSavings  = sumHiddenSavings(periodTx)
+  const capitalIncome  = sumCapitalIncome(periodTx)
+  const netHidden      = hiddenSavings - capitalIncome
 
   // Stats row
   const cards = [
-    { label: 'יתרות נזילות',   value: liquid,   color: liquid >= 0 ? 'var(--income)' : 'var(--expense)', icon: '💧', bg: liquid >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)' },
     { label: 'הכנסות התקופה', value: income,   color: 'var(--income)',  icon: '📈', bg: 'var(--income-bg)' },
     { label: 'הוצאות התקופה', value: expenses, color: 'var(--expense)', icon: '📉', bg: 'var(--expense-bg)' },
     { label: 'נטו התקופה',    value: net,      color: net >= 0 ? 'var(--income)' : 'var(--expense)', icon: '⚖️', bg: net >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)' },
   ]
-  if (hiddenSavings > 0) {
-    cards.push({ label: 'חיסכון חבוי בהוצאות', value: hiddenSavings, color: 'var(--accent)', icon: '🪙', bg: 'var(--income-bg)', tooltip: 'הוצאות שסומנו כחיסכון — נכללות בסך ההוצאות אך מייצגות כסף שנשמר' })
+  if (hiddenSavings > 0 || capitalIncome > 0) {
+    const parts = []
+    if (hiddenSavings > 0) parts.push(`+${formatCurrency(hiddenSavings)} חסכונות חבויים`)
+    if (capitalIncome > 0) parts.push(`−${formatCurrency(capitalIncome)} הכנסה הונית`)
+    cards.push({
+      label: 'חיסכון חבוי נטו',
+      value: netHidden,
+      color: netHidden >= 0 ? 'var(--income)' : 'var(--expense)',
+      icon: '🪙',
+      bg: netHidden >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)',
+      tooltip: `חסכונות חבויים פחות הכנסה הונית:\n${parts.join('\n')}\n\nחיובי = נטו הכנסת כסף לחיסכון. שלילי = נטו שבירת חיסכון.`
+    })
   }
   document.getElementById('dashStats').innerHTML = cards.map(s => `
     <div class="stat-card" ${s.tooltip?`title="${s.tooltip}"`:''}>
@@ -58,20 +68,20 @@ function renderDashboard() {
 }
 
 function _renderAccountBalances() {
-  const accs = getAccounts()
+  // Show ONLY checking + cash. Balances for CC / savings / investment are
+  // unreliable here because we don't have real-time data (CC has unpaid-but-
+  // not-yet-charged purchases; savings/investment usually lag or aren't imported).
+  const accs = getAccounts().filter(a => PL_ACCOUNT_TYPES.has(a.type))
   const el = document.getElementById('dashAccounts')
   if (!el) return
   if (accs.length === 0) {
-    el.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1rem">אין חשבונות. עבור להגדרות.</p>'
+    el.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1rem">אין חשבונות עו"ש/מזומן. עבור להגדרות.</p>'
     return
   }
-  const TYPE = { checking:'עו"ש', savings:'חיסכון', credit_card:'אשראי', cash:'מזומן', investment:'ני"ע' }
-  const liquid    = accs.filter(isLiquidAccount)
-  const nonLiquid = accs.filter(a => !isLiquidAccount(a))
-
-  const rowHtml = a => {
+  const TYPE = { checking:'עו"ש', cash:'מזומן' }
+  el.innerHTML = accs.map(a => {
     const bal = getAccountBalance(a.id)
-    const color = a.type === 'credit_card' ? (bal < 0 ? 'var(--expense)' : 'var(--text-secondary)') : (bal >= 0 ? 'var(--income)' : 'var(--expense)')
+    const color = bal >= 0 ? 'var(--income)' : 'var(--expense)'
     return `
       <div class="account-balance-row">
         <div>
@@ -80,13 +90,7 @@ function _renderAccountBalances() {
         </div>
         <span style="font-weight:700;color:${color}">${formatCurrency(bal)}</span>
       </div>`
-  }
-
-  const liquidSection = liquid.length ? liquid.map(rowHtml).join('') : ''
-  const nonLiquidSection = nonLiquid.length
-    ? `<div class="account-group-label">חיסכון והשקעות</div>${nonLiquid.map(rowHtml).join('')}`
-    : ''
-  el.innerHTML = liquidSection + nonLiquidSection
+  }).join('')
 }
 
 function _renderNonLiquidFlows(period) {

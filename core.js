@@ -205,6 +205,13 @@ function getLiquidBalance(uptoDateISO = null) {
   return getAccounts().filter(isLiquidAccount).reduce((s, a) => s + getAccountBalance(a.id, uptoDateISO), 0)
 }
 
+// Balance across P&L accounts only (checking + cash). Accurate because it
+// mirrors the bank statements directly — unlike CC balances which depend on
+// timing that the app can't observe.
+function getCheckingCashBalance(uptoDateISO = null) {
+  return getAccounts().filter(a => PL_ACCOUNT_TYPES.has(a.type)).reduce((s, a) => s + getAccountBalance(a.id, uptoDateISO), 0)
+}
+
 function getLiquidBalanceTrend(months) {
   return months.map(mo => {
     const [y, m] = mo.split('-').map(Number)

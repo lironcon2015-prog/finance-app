@@ -21,7 +21,16 @@ function _classifyCadence(gaps) {
 }
 
 function detectRecurring() {
-  const txs = getTransactions().filter(t => t.type !== 'transfer')
+  // Exclude transfers and bank-level CC payment aggregates — the real detail
+  // lives on the CC account (individual purchases), which IS included. Also
+  // exclude linked savings/investment deposits (they're a single structural
+  // flow to a savings bucket, not a recurring "bill").
+  const txs = getTransactions().filter(t => {
+    if (t.type === 'transfer') return false
+    if (t.ccPaymentForAccountId) return false
+    if (t.transferAccountId) return false
+    return true
+  })
   const groups = {}
   txs.forEach(t => {
     const key = _normalizeVendor(t.vendor)
@@ -135,7 +144,14 @@ function hideRecurring(key) { const s = getHiddenRecurring(); s.add(key); setHid
 function unhideRecurring(key) { const s = getHiddenRecurring(); s.delete(key); setHiddenRecurring(s); renderRecurring() }
 
 let _recShowHidden = false
+let _recFlowMode = 'expense'  // 'expense' | 'income' — sticky toggle
 function toggleShowHiddenRecurring() { _recShowHidden = !_recShowHidden; renderRecurring() }
+function setRecurringFlowMode(mode) { _recFlowMode = mode; renderRecurring() }
+
+// Recurring rows carry arbitrary Hebrew / punctuation in `key`, which breaks
+// inline onclick attribute string-escaping. We keep a render-time map from a
+// safe index string to the real key and use data-idx + event delegation.
+let _recKeyMap = {}
 
 // ===== RECURRING SCREEN =====
 function renderRecurring() {
@@ -144,38 +160,58 @@ function renderRecurring() {
   if (!container) return
 
   const hidden = getHiddenRecurring()
-  const visible  = items.filter(r => !hidden.has(r.key))
-  const hiddenList = items.filter(r =>  hidden.has(r.key))
+  const expenseItems = items.filter(r => r.avgAmount < 0)
+  const incomeItems  = items.filter(r => r.avgAmount > 0)
+  const bucket = _recFlowMode === 'income' ? incomeItems : expenseItems
+
+  const visible    = bucket.filter(r => !hidden.has(r.key))
+  const hiddenList = bucket.filter(r =>  hidden.has(r.key))
+
+  // Rebuild the idx→key map for this render.
+  _recKeyMap = {}
+  items.forEach((r, i) => { _recKeyMap['k' + i] = r.key })
+  const idxOf = r => Object.keys(_recKeyMap).find(k => _recKeyMap[k] === r.key)
+
+  const modeLabel = _recFlowMode === 'income' ? 'הכנסות' : 'הוצאות'
+  const toggle = `
+    <div class="recurring-mode-toggle">
+      <button class="mode-btn ${_recFlowMode==='expense'?'active':''}" onclick="setRecurringFlowMode('expense')">📉 הוצאות קבועות <span class="mode-count">${expenseItems.length}</span></button>
+      <button class="mode-btn ${_recFlowMode==='income'?'active':''}" onclick="setRecurringFlowMode('income')">📈 הכנסות קבועות <span class="mode-count">${incomeItems.length}</span></button>
+    </div>`
 
   const toolbar = `
     <div class="recurring-toolbar">
-      <div style="color:var(--text-muted);font-size:.85rem">${visible.length} הוצאות קבועות פעילות · ${hiddenList.length} מוסתרות</div>
+      <div style="color:var(--text-muted);font-size:.85rem">${visible.length} ${modeLabel} פעילות · ${hiddenList.length} מוסתרות</div>
       ${hiddenList.length > 0 ? `<button class="btn-ghost" onclick="toggleShowHiddenRecurring()">${_recShowHidden?'הסתר מוסתרות':'הצג מוסתרות'}</button>` : ''}
     </div>`
 
   if (items.length === 0) {
-    container.innerHTML = toolbar +
+    container.innerHTML = toggle +
       '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:3rem">לא זוהו הוצאות/הכנסות קבועות. נדרשות לפחות 3 עסקאות חוזרות לאותו ספק.</p>'
     return
   }
 
-  const buildRow = (r, isHidden = false) => `
-    <tr class="recurring-row ${isHidden?'recurring-row-hidden':''}" onclick="openRecurringDrill('${r.key.replace(/'/g,"\\'")}')">
-      <td style="font-weight:500">${r.vendor}</td>
-      <td><span class="type-badge type-income">${r.cadenceLabel}</span></td>
-      <td class="${r.avgAmount>0?'amount-inc':'amount-exp'}">${r.avgAmount>0?'+':''}${formatCurrency(r.avgAmount)}</td>
-      <td>${formatDate(r.lastSeen)}</td>
-      <td>${formatDate(r.nextExpected)}</td>
-      <td>${r.occurrences}</td>
-      <td onclick="event.stopPropagation()">
-        ${isHidden
-          ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="unhideRecurring('${r.key.replace(/'/g,"\\'")}')">שחזר</button>`
-          : `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="hideRecurring('${r.key.replace(/'/g,"\\'")}')">הסתר</button>`}
-      </td>
-    </tr>`
+  const buildRow = (r, isHidden = false) => {
+    const idx = idxOf(r)
+    const amountCls = r.avgAmount > 0 ? 'amount-inc' : 'amount-exp'
+    return `
+      <tr class="recurring-row ${isHidden?'recurring-row-hidden':''}" onclick="openRecurringDrillByIdx('${idx}')">
+        <td style="font-weight:500">${r.vendor}</td>
+        <td><span class="type-badge type-income">${r.cadenceLabel}</span></td>
+        <td class="${amountCls}">${r.avgAmount>0?'+':''}${formatCurrency(r.avgAmount)}</td>
+        <td>${formatDate(r.lastSeen)}</td>
+        <td>${formatDate(r.nextExpected)}</td>
+        <td>${r.occurrences}</td>
+        <td onclick="event.stopPropagation()">
+          ${isHidden
+            ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="unhideRecurringByIdx('${idx}')">שחזר</button>`
+            : `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="hideRecurringByIdx('${idx}')">הסתר</button>`}
+        </td>
+      </tr>`
+  }
 
   const visibleTable = visible.length === 0
-    ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">כל ההוצאות הקבועות מוסתרות.</p>'
+    ? `<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין ${modeLabel} קבועות${bucket.length>0?' (כולן מוסתרות)':''}.</p>`
     : `<table class="data-table recurring-table">
         <thead><tr>
           <th>ספק</th><th>תדירות</th><th>סכום ממוצע</th>
@@ -195,8 +231,14 @@ function renderRecurring() {
        </table>`
     : ''
 
-  container.innerHTML = toolbar + visibleTable + hiddenBlock
+  container.innerHTML = toggle + toolbar + visibleTable + hiddenBlock
 }
+
+// Thin wrappers that resolve an idx→key via _recKeyMap — avoids escaping Hebrew
+// or punctuation inside inline onclick attributes.
+function hideRecurringByIdx(idx)   { const k = _recKeyMap[idx]; if (k) hideRecurring(k) }
+function unhideRecurringByIdx(idx) { const k = _recKeyMap[idx]; if (k) unhideRecurring(k) }
+function openRecurringDrillByIdx(idx) { const k = _recKeyMap[idx]; if (k) openRecurringDrill(k) }
 
 // ===== DRILL-DOWN =====
 let _drillKey = null

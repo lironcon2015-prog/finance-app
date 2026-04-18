@@ -224,6 +224,8 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 
 /* ===== CAT BREAKDOWN ===== */
 .cat-bar-item { margin-bottom: .65rem; }
+.cat-bar-clickable { cursor: pointer; padding: .3rem .4rem; border-radius: .4rem; transition: background .15s; }
+.cat-bar-clickable:hover { background: rgba(59,130,246,.08); }
 .cat-bar-header { display: flex; justify-content: space-between; font-size: .83rem; margin-bottom: .3rem; }
 .cat-bar-track { height: 6px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
 .cat-bar-fill { height: 100%; border-radius: 3px; transition: width .5s; }
@@ -438,6 +440,12 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .rules-default-row .rules-cat { color: var(--accent); }
 
 /* ===== Recurring ===== */
+.recurring-mode-toggle { position: sticky; top: 0; z-index: 5; display: flex; gap: .5rem; background: var(--bg-card); padding: .5rem 0 .75rem; margin-bottom: .25rem; }
+.recurring-mode-toggle .mode-btn { flex: 1; padding: .6rem .9rem; background: var(--bg-elev); border: 1px solid var(--border); border-radius: .6rem; color: var(--text-secondary); font-size: .9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: .5rem; transition: background .15s, border-color .15s; }
+.recurring-mode-toggle .mode-btn:hover { background: var(--bg-hover); }
+.recurring-mode-toggle .mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.recurring-mode-toggle .mode-count { background: rgba(255,255,255,.2); padding: .1rem .5rem; border-radius: 20px; font-size: .75rem; font-weight: 600; }
+.recurring-mode-toggle .mode-btn:not(.active) .mode-count { background: rgba(148,163,184,.2); color: var(--text-secondary); }
 .recurring-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .75rem; flex-wrap: wrap; }
 .recurring-table tr.recurring-row { cursor: pointer; transition: background .15s; }
 .recurring-table tr.recurring-row:hover { background: rgba(59,130,246,.08); }
