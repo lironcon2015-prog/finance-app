@@ -342,12 +342,47 @@ function _renderCashFlowStatement(all, period) {
 // Top vendors grouping uses the ALIASED (display) name so unified vendors
 // cluster together. Clicking a row opens a vendor drill modal showing every
 // underlying raw vendor + all transactions, with the option to alias.
+//
+// SCOPE: must match the expense breakdown (analysisExpenseAmount) so vendors
+// that don't appear in "הוצאות לפי קטגוריה" never show up here. That excludes
+// the lump-sum CC payment bank row (its detail CC lines already contribute)
+// and the savings/investment-side rows.
 let _topVendorMap = {}  // idx → { displayName, rawVendors: Set<string> }
 
+function getHiddenTopVendors() { return DB.get('finHiddenTopVendors', []) }
+function saveHiddenTopVendors(list) { DB.set('finHiddenTopVendors', list) }
+
+function hideTopVendor(displayName) {
+  const list = getHiddenTopVendors()
+  if (!list.includes(displayName)) {
+    list.push(displayName)
+    saveHiddenTopVendors(list)
+  }
+  _drawAnalysis()
+}
+
+function unhideTopVendor(displayName) {
+  saveHiddenTopVendors(getHiddenTopVendors().filter(n => n !== displayName))
+  _drawAnalysis()
+}
+
+function hideTopVendorByIdx(idx) {
+  const entry = _topVendorMap[idx]
+  if (!entry) return
+  hideTopVendor(entry.displayName)
+}
+
+function toggleHiddenTopVendorsList() {
+  const el = document.getElementById('hiddenTopVendorsList')
+  if (!el) return
+  el.classList.toggle('open')
+}
+
 function _renderTopVendors(periodTx) {
+  const savingsInvestIds = analysisExpenseSavingsInvestIds()
   const byVendor = {}
   periodTx.forEach(t => {
-    const ca = countedExpenseAmount(t)
+    const ca = analysisExpenseAmount(t, savingsInvestIds)
     if (ca <= 0) return
     const raw = (t.vendor || '—').trim()
     const display = resolveVendor(raw) || raw || '—'
@@ -356,24 +391,51 @@ function _renderTopVendors(periodTx) {
     byVendor[display].count++
     if (raw) byVendor[display].rawVendors.add(raw)
   })
-  const rows = Object.values(byVendor).sort((a,b) => b.total - a.total).slice(0, 10)
+  const hidden = new Set(getHiddenTopVendors())
+  const allSorted = Object.values(byVendor).sort((a,b) => b.total - a.total)
+  const visible   = allSorted.filter(r => !hidden.has(r.displayName))
+  const rows      = visible.slice(0, 10)
+  const hiddenRows = allSorted.filter(r => hidden.has(r.displayName))
+  // Hidden vendors the user hid but don't exist in current period — keep so they can still be unhidden
+  const hiddenOrphans = [...hidden].filter(n => !byVendor[n]).map(n => ({ displayName: n, total: 0, count: 0, rawVendors: new Set() }))
+  const hiddenAll = [...hiddenRows, ...hiddenOrphans]
 
   _topVendorMap = {}
   rows.forEach((r, i) => { _topVendorMap['v' + i] = { displayName: r.displayName, rawVendors: [...r.rawVendors] } })
 
-  document.getElementById('topVendors').innerHTML = rows.length === 0
+  const escapeAttr = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;')
+
+  const tableHtml = rows.length === 0
     ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1.5rem">אין נתונים</p>'
     : `<table class="data-table top-vendors-table" style="font-size:.85rem">
-        <thead><tr><th>ספק</th><th>עסקאות</th><th style="text-align:left">סה"כ</th></tr></thead>
+        <thead><tr><th>ספק</th><th>עסקאות</th><th>סה"כ</th><th style="width:2.5rem"></th></tr></thead>
         <tbody>${rows.map((r, i) => {
           const aliased = r.rawVendors.size > 1 ? ` <span title="מאוחד מ-${r.rawVendors.size} שמות" style="font-size:.72rem;color:var(--text-muted)">🔗</span>` : ''
-          return `<tr class="vendor-row" onclick="openVendorDrillByIdx('v${i}')" title="לחץ כדי לראות את כל העסקאות">
-            <td style="font-weight:500">${r.displayName}${aliased}</td>
-            <td>${r.count}</td>
-            <td class="amount-exp">${formatCurrency(r.total)}</td>
+          return `<tr class="vendor-row">
+            <td style="font-weight:500" onclick="openVendorDrillByIdx('v${i}')" title="לחץ כדי לראות את כל העסקאות">${r.displayName}${aliased}</td>
+            <td onclick="openVendorDrillByIdx('v${i}')">${r.count}</td>
+            <td class="amount-exp" onclick="openVendorDrillByIdx('v${i}')">${formatCurrency(r.total)}</td>
+            <td><button class="vendor-hide-btn" onclick="event.stopPropagation();hideTopVendorByIdx('v${i}')" title="הסתר מהרשימה">✕</button></td>
           </tr>`
         }).join('')}</tbody>
       </table>`
+
+  const hiddenToggle = hiddenAll.length === 0 ? '' : `
+    <div class="hidden-vendors-wrap">
+      <button class="btn-ghost hidden-vendors-toggle" onclick="toggleHiddenTopVendorsList()">
+        הצג ספקים מוסתרים (${hiddenAll.length})
+      </button>
+      <div id="hiddenTopVendorsList" class="hidden-vendors-list">
+        ${hiddenAll.map(r => `
+          <div class="hidden-vendor-row">
+            <span class="hidden-vendor-name">${r.displayName}</span>
+            ${r.total > 0 ? `<span class="hidden-vendor-total amount-exp">${formatCurrency(r.total)}</span>` : '<span class="hidden-vendor-total" style="color:var(--text-muted);font-size:.75rem">—</span>'}
+            <button class="btn-ghost hidden-vendor-restore" onclick="unhideTopVendor('${escapeAttr(r.displayName)}')" title="החזר לרשימה">↩ החזר</button>
+          </div>`).join('')}
+      </div>
+    </div>`
+
+  document.getElementById('topVendors').innerHTML = tableHtml + hiddenToggle
 }
 
 // ===== VENDOR DRILL =====
