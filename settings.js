@@ -236,6 +236,7 @@ function saveAccount() {
     createdAt:      Date.now(),
   })
   DB.set('finAccounts', accounts)
+  invalidatePLCache()
   document.getElementById('accName').value = ''
   document.getElementById('accInstitution').value = ''
   document.getElementById('accBalance').value = '0'
@@ -336,11 +337,24 @@ function saveCategory() {
   renderSettings()
 }
 
+// Shared delete: drops the category and scrubs stale categoryId pointers
+// on every transaction so the dataset isn't dirty (autocat learning reads
+// raw categoryId counts and would otherwise score a ghost id).
+function _deleteCategoryAndScrub(id) {
+  DB.set('finCategories', getCategories().filter(c => c.id !== id))
+  const txs = getTransactions()
+  let changed = 0
+  txs.forEach(t => { if (t.categoryId === id) { t.categoryId = ''; changed++ } })
+  if (changed > 0) DB.set('finTransactions', txs)
+  if (typeof invalidateSavingsCache === 'function')       invalidateSavingsCache()
+  if (typeof invalidateCapitalIncomeCache === 'function') invalidateCapitalIncomeCache()
+}
+
 function deleteCategory(id) {
   const cat = getCategories().find(c => c.id === id)
   if (cat?.system) { alert('לא ניתן למחוק קטגוריית מערכת'); return }
   if (!confirm('האם למחוק קטגוריה זו?')) return
-  DB.set('finCategories', getCategories().filter(c => c.id !== id))
+  _deleteCategoryAndScrub(id)
   renderSettings()
 }
 
@@ -456,9 +470,7 @@ function deleteFromCatModal() {
   const cat = getCategoryById(_catEditId)
   if (!cat || cat.system) return
   if (!confirm('למחוק את הקטגוריה? עסקאות שסווגו אליה יוצגו כלא־מסווגות.')) return
-  DB.set('finCategories', getCategories().filter(c => c.id !== _catEditId))
-  if (typeof invalidateSavingsCache === 'function') invalidateSavingsCache()
-  if (typeof invalidateCapitalIncomeCache === 'function') invalidateCapitalIncomeCache()
+  _deleteCategoryAndScrub(_catEditId)
   closeCatEditModal()
   renderSettings()
 }

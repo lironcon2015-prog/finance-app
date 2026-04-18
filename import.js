@@ -185,10 +185,14 @@ function _finalizeParsedTransactions(parsed, accountId) {
     const total = entries.reduce((s, [, n]) => s + n, 0)
     entries.sort((a, b) => b[1] - a[1])
     const [topCat, topN] = entries[0]
-    return (topN / total) >= 0.8 ? topCat : ''
+    return (topN / total) >= AUTOCAT_CONFIDENCE_THRESHOLD ? topCat : ''
   }
 
-  const existingHashes = new Set(existing.map(t => t.sourceHash))
+  // Dual-hash dedupe: match against BOTH the current hash (incl. description)
+  // and the legacy hash (pre-1.9.1, no description). Existing rows may carry
+  // either or both; either side matching is a duplicate.
+  const existingHashes = new Set(existing.map(t => t.sourceHash).filter(Boolean))
+  const existingLegacy = new Set(existing.map(t => t.legacySourceHash).filter(Boolean))
 
   // Auto-transfer detection on import is DISABLED: the bank statement is the
   // authoritative P&L source. A "כאל 5000" line on the bank is a real expense,
@@ -199,17 +203,24 @@ function _finalizeParsedTransactions(parsed, accountId) {
     const catFromName    = matchCategory(t)
     const catFromRules   = catFromName ? '' : matchVendorToCategory(t.vendor, t.description)
     const catFromAutocat = (catFromName || catFromRules) ? '' : suggestFromAutocat(t.vendor)
+    const { hash, legacyHash } = hashTx(t, accountId)
+    const isDuplicate = existingHashes.has(hash)
+                     || existingHashes.has(legacyHash)
+                     || existingLegacy.has(hash)
+                     || existingLegacy.has(legacyHash)
     return {
       ...t,
-      _categoryId: catFromName || catFromRules || catFromAutocat,
-      _hash: hashTx(t, accountId),
-      _keep: true,
-      _accountId: accountId,
+      _categoryId:     catFromName || catFromRules || catFromAutocat,
+      _hash:           hash,
+      _legacyHash:     legacyHash,
+      _duplicate:      isDuplicate,
+      _keep:           !isDuplicate,
+      _accountId:      accountId,
       _matchAccountId:   '',
       _matchAccountName: '',
       _matchAccountType: '',
     }
-  }).map(t => ({ ...t, _duplicate: existingHashes.has(t._hash), _keep: !existingHashes.has(t._hash) }))
+  })
 
   document.getElementById('importStep2').style.display = 'none'
   showImportReview()
@@ -294,24 +305,27 @@ function saveImport() {
   const batchId = genId()
   const importedAt = Date.now()
   const newTx = toSave.map(t => ({
-    id:          genId(),
-    accountId:   t._accountId,
-    date:        t.date,
-    amount:      t.amount,
-    vendor:      t.vendor,
-    description: t.description || '',
-    type:        t.type,
-    categoryId:  t._categoryId || '',
-    notes:       '',
-    sourceHash:  t._hash,
-    sourceFile:  _importFileName,
-    importBatch: batchId,
-    importedAt:  importedAt,
-    createdAt:   importedAt,
+    id:               genId(),
+    accountId:        t._accountId,
+    date:             t.date,
+    amount:           t.amount,
+    vendor:           t.vendor,
+    description:      t.description || '',
+    type:             t.type,
+    categoryId:       t._categoryId || '',
+    notes:            '',
+    sourceHash:       t._hash,
+    legacySourceHash: t._legacyHash,
+    sourceFile:       _importFileName,
+    importBatch:      batchId,
+    importedAt:       importedAt,
+    createdAt:        importedAt,
     transferAccountId: t._matchAccountId || undefined,
     ccPaymentForAccountId: t._matchAccountType === 'credit_card' ? t._matchAccountId : undefined,
   }))
   DB.set('finTransactions', [...existing, ...newTx])
+  // New rows invalidate the recurring-pattern cache (TTL 24h otherwise).
+  localStorage.removeItem('finRecurring')
   document.getElementById('importStep3').style.display = 'none'
   document.getElementById('importStep4').style.display = 'block'
   document.getElementById('importDoneMsg').textContent = `${newTx.length} עסקאות נשמרו בהצלחה`

@@ -62,8 +62,12 @@ function detectRecurring() {
     const cadence = _classifyCadence(gaps)
     if (!cadence) continue
     const last = filtered[filtered.length - 1]
-    const nextDate = new Date(last.date)
-    nextDate.setDate(nextDate.getDate() + cadence.days)
+    // Timezone-safe: 'YYYY-MM-DD' parsed via `new Date(str)` is UTC midnight,
+    // but getDate() reads local. In UTC+2/3 this can shift the day backward.
+    // Use the local-time Date constructor + local getters only.
+    const [ly, lm, ld] = last.date.split('-').map(Number)
+    const nextDate = new Date(ly, lm - 1, ld + cadence.days)
+    const nextExpected = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-${String(nextDate.getDate()).padStart(2,'0')}`
     const avgAmount = filtered.reduce((s,t)=>s+t.amount,0) / filtered.length
     out.push({
       key,
@@ -73,7 +77,7 @@ function detectRecurring() {
       cadenceDays: cadence.days,
       avgAmount,
       lastSeen: last.date,
-      nextExpected: nextDate.toISOString().slice(0,10),
+      nextExpected,
       occurrences: filtered.length,
       accountId: last.accountId,
       categoryId: last.categoryId,

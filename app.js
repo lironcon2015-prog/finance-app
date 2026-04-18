@@ -1,4 +1,4 @@
-const APP_VERSION = '1.9.0'
+const APP_VERSION = '1.9.1'
 
 // ===== STORAGE =====
 const DB = {
@@ -17,11 +17,24 @@ function formatDate(str) {
   return `${d}/${m}/${y}`
 }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
-function hashTx(tx, accountId) {
-  const raw = `${accountId}|${tx.date}|${tx.amount}|${tx.vendor}`
+
+function _rawHash(str) {
   let h = 0
-  for (let i = 0; i < raw.length; i++) { h = (Math.imul(31, h) + raw.charCodeAt(i)) | 0 }
+  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0
   return Math.abs(h).toString(36)
+}
+
+// Returns { hash, legacyHash }:
+//   hash       — includes description, avoiding false dup-matches when the
+//                same vendor charges the same amount twice on the same day.
+//   legacyHash — pre-1.9.1 formula (no description). Kept so re-imports of
+//                files indexed before the upgrade still detect existing rows.
+// saveImport stores both on the transaction (sourceHash + legacySourceHash),
+// and _finalizeParsedTransactions matches against both sets in either direction.
+function hashTx(tx, accountId) {
+  const v1 = `${accountId}|${tx.date}|${tx.amount}|${tx.vendor}`
+  const v2 = `${accountId}|${tx.date}|${tx.amount}|${tx.vendor}|${tx.description||''}`
+  return { hash: _rawHash(v2), legacyHash: _rawHash(v1) }
 }
 
 // ===== NAVIGATION =====
