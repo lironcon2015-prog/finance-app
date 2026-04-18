@@ -181,8 +181,12 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .list-item-del { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: .3rem; transition: color .15s; }
 .list-item-del:hover { color: var(--expense); }
 .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .5rem; }
-.cat-chip { display: flex; align-items: center; justify-content: space-between; padding: .55rem .9rem; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; }
+.cat-chip { display: flex; align-items: center; justify-content: space-between; padding: .55rem .9rem; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; transition: background .15s, border-color .15s; }
+.cat-chip:hover { background: var(--bg-elev); border-color: var(--accent); }
 .cat-chip-left { display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
+.cat-chip-edit { font-size: .85rem; color: var(--text-muted); opacity: .6; }
+.cat-chip:hover .cat-chip-edit { opacity: 1; }
+.cat-savings-badge { font-size: .85rem; margin-inline-start: .2rem; }
 .cat-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
 /* ===== CHAT ===== */

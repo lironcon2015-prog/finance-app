@@ -13,15 +13,20 @@ function renderDashboard() {
   const expenses = sumExpenses(periodTx)
   const net      = income - expenses
   const liquid   = getLiquidBalance()
+  const hiddenSavings = sumHiddenSavings(periodTx)
 
-  // Stats row (4 cards)
-  document.getElementById('dashStats').innerHTML = [
+  // Stats row
+  const cards = [
     { label: 'יתרות נזילות',   value: liquid,   color: liquid >= 0 ? 'var(--income)' : 'var(--expense)', icon: '💧', bg: liquid >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)' },
     { label: 'הכנסות התקופה', value: income,   color: 'var(--income)',  icon: '📈', bg: 'var(--income-bg)' },
     { label: 'הוצאות התקופה', value: expenses, color: 'var(--expense)', icon: '📉', bg: 'var(--expense-bg)' },
     { label: 'נטו התקופה',    value: net,      color: net >= 0 ? 'var(--income)' : 'var(--expense)', icon: '⚖️', bg: net >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)' },
-  ].map(s => `
-    <div class="stat-card">
+  ]
+  if (hiddenSavings > 0) {
+    cards.push({ label: 'חיסכון חבוי בהוצאות', value: hiddenSavings, color: 'var(--accent)', icon: '🪙', bg: 'var(--income-bg)', tooltip: 'הוצאות שסומנו כחיסכון — נכללות בסך ההוצאות אך מייצגות כסף שנשמר' })
+  }
+  document.getElementById('dashStats').innerHTML = cards.map(s => `
+    <div class="stat-card" ${s.tooltip?`title="${s.tooltip}"`:''}>
       <div class="stat-icon" style="background:${s.bg}">${s.icon}</div>
       <div>
         <div class="stat-label">${s.label}</div>

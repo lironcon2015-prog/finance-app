@@ -121,7 +121,7 @@
           </span>
           <input id="txSearch" placeholder="חיפוש ספק..." oninput="_drawTxTable()">
         </div>
-        <select id="txTypeFilter" onchange="_drawTxTable()">
+        <select id="txTypeFilter" onchange="_txPage=0;_drawTxTable()">
           <option value="all">כל הסוגים</option>
           <option value="income">הכנסות</option>
           <option value="expense">הוצאות</option>
@@ -483,6 +483,24 @@
 </div>
 
 <!-- Auto-Categorize Ambiguous Modal -->
+<!-- Category editor -->
+<div class="modal-overlay" id="catEditModal">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-header">
+      <h3 id="catEditTitle">עריכת קטגוריה</h3>
+      <button class="modal-close" onclick="closeCatEditModal()">✕</button>
+    </div>
+    <div id="catEditBody"></div>
+    <div style="display:flex;gap:.75rem;justify-content:space-between;margin-top:1.25rem">
+      <button class="btn-danger" id="catEditDeleteBtn" onclick="deleteFromCatModal()">מחק</button>
+      <div style="display:flex;gap:.75rem">
+        <button class="btn-ghost" onclick="closeCatEditModal()">ביטול</button>
+        <button class="btn-primary" onclick="saveCatEdit()">שמור</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Recurring drill-down -->
 <div class="modal-overlay" id="recurringDrillModal">
   <div class="modal-box" style="max-width:820px">
@@ -535,19 +553,19 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.8.1';</script>
-<script src="app.js?v=1.8.1"></script>
-<script src="core.js?v=1.8.1"></script>
-<script src="templates.js?v=1.8.1"></script>
-<script src="autocat.js?v=1.8.1"></script>
-<script src="budget.js?v=1.8.1"></script>
-<script src="recurring.js?v=1.8.1"></script>
-<script src="dashboard.js?v=1.8.1"></script>
-<script src="transactions.js?v=1.8.1"></script>
-<script src="wizard.js?v=1.8.1"></script>
-<script src="import.js?v=1.8.1"></script>
-<script src="analysis.js?v=1.8.1"></script>
-<script src="settings.js?v=1.8.1"></script>
+<script>const _v = '1.8.2';</script>
+<script src="app.js?v=1.8.2"></script>
+<script src="core.js?v=1.8.2"></script>
+<script src="templates.js?v=1.8.2"></script>
+<script src="autocat.js?v=1.8.2"></script>
+<script src="budget.js?v=1.8.2"></script>
+<script src="recurring.js?v=1.8.2"></script>
+<script src="dashboard.js?v=1.8.2"></script>
+<script src="transactions.js?v=1.8.2"></script>
+<script src="wizard.js?v=1.8.2"></script>
+<script src="import.js?v=1.8.2"></script>
+<script src="analysis.js?v=1.8.2"></script>
+<script src="settings.js?v=1.8.2"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

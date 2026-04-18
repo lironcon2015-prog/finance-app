@@ -60,16 +60,20 @@ function _getFiltered() {
   const account = document.getElementById('txAccountFilter')?.value || ''
   const category = document.getElementById('txCategoryFilter')?.value || ''
   const flowAcc = document.getElementById('txFlowFilter')?.value || ''
+  // Treat a tx as uncategorized if it has no categoryId, or if its
+  // categoryId points at a category that was deleted.
+  const validCatIds = new Set(getCategories().map(c => c.id))
+  const isUncat = t => !t.categoryId || !validCatIds.has(t.categoryId)
   return getTransactions()
     .filter(t => {
       if (type !== 'all') {
-        if (type === 'uncategorized') { if (t.categoryId) return false }
+        if (type === 'uncategorized') { if (!isUncat(t)) return false }
         else if (t.type !== type) return false
       }
       if (month && !t.date?.startsWith(month)) return false
       if (account && t.accountId !== account) return false
       if (category) {
-        if (category === '__none__') { if (t.categoryId) return false }
+        if (category === '__none__') { if (!isUncat(t)) return false }
         else if (t.categoryId !== category) return false
       }
       if (flowAcc) {

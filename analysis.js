@@ -15,17 +15,37 @@ function _drawAnalysis() {
   const all = getTransactions()
   const periodTx = filterByPeriod(all, period)
 
-  const income   = sumIncome(periodTx)
-  const expenses = sumExpenses(periodTx)
-  const net = income - expenses
+  const income         = sumIncome(periodTx)
+  const expenses       = sumExpenses(periodTx)
+  const hiddenSavings  = sumHiddenSavings(periodTx)
+  const net            = income - expenses
+  // "True savings rate" treats the hidden-savings expenses as kept money:
+  // (net + hiddenSavings) / income — i.e., percent of income the user did
+  // NOT consume, whether by not spending or by routing into a savings bucket.
+  const pnlPct      = income > 0 ? (net / income * 100) : 0
+  const savingsPct  = income > 0 ? ((net + hiddenSavings) / income * 100) : 0
+  const hasHidden   = hiddenSavings > 0
 
-  document.getElementById('pnlStats').innerHTML = [
+  const cards = [
     { label: 'סך הכנסות', value: income,   color: 'var(--income)',  icon: '📈', bg: 'var(--income-bg)' },
     { label: 'סך הוצאות', value: expenses, color: 'var(--expense)', icon: '📉', bg: 'var(--expense-bg)' },
     { label: 'רווח / הפסד', value: net,    color: net>=0?'var(--income)':'var(--expense)', icon: '⚖️', bg: net>=0?'var(--income-bg)':'var(--expense-bg)' },
-    { label: 'אחוז חיסכון', value: income > 0 ? (net / income * 100) : 0, color: net>=0?'var(--income)':'var(--expense)', icon: '🎯', bg: net>=0?'var(--income-bg)':'var(--expense-bg)', pct: true },
-  ].map(s => `
-    <div class="stat-card">
+    { label: hasHidden ? 'רווח/הפסד כאחוז מהכנסה' : 'אחוז חיסכון', value: pnlPct,
+      color: pnlPct>=0?'var(--income)':'var(--expense)', icon: '🎯',
+      bg: pnlPct>=0?'var(--income-bg)':'var(--expense-bg)', pct: true,
+      tooltip: '(הכנסות − הוצאות) / הכנסות — אותו חישוב כמו בעבר (רווח/הפסד מתוך הכנסה)' },
+  ]
+  if (hasHidden) {
+    cards.push({
+      label: 'אחוז חיסכון כולל (כולל חסכונות חבויים)',
+      value: savingsPct,
+      color: savingsPct>=0?'var(--income)':'var(--expense)', icon: '🪙',
+      bg: savingsPct>=0?'var(--income-bg)':'var(--expense-bg)', pct: true,
+      tooltip: '(נטו + חסכונות חבויים) / הכנסות — מוסיף בחזרה הוצאות שסימנת כחיסכון'
+    })
+  }
+  document.getElementById('pnlStats').innerHTML = cards.map(s => `
+    <div class="stat-card" ${s.tooltip?`title="${s.tooltip}"`:''}>
       <div class="stat-icon" style="background:${s.bg}">${s.icon}</div>
       <div>
         <div class="stat-label">${s.label}</div>

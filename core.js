@@ -41,6 +41,35 @@ function sumIncome(txs)   { return txs.filter(isCountedIncome).reduce((s,t)=>s+t
 function sumExpenses(txs) { return txs.reduce((s,t)=>s+countedExpenseAmount(t),0) }
 function sumNet(txs)      { return sumIncome(txs) - sumExpenses(txs) }
 
+// ===== "HIDDEN SAVINGS" — expense categories tagged isSavings =====
+// A user can mark any expense category as isSavings=true via the category
+// editor. Amounts in those categories are still real outflows (money left
+// the checking account), so we keep them in sumExpenses by default — but
+// they represent money the user *kept* (moved to savings/investment/etc.)
+// rather than consumed. These helpers let us present that separately.
+let _savingsCatCache = null
+let _savingsCatCacheTs = 0
+function getSavingsCategoryIds() {
+  const now = Date.now()
+  if (!_savingsCatCache || now - _savingsCatCacheTs > 500) {
+    _savingsCatCache = new Set(getCategories().filter(c => c.isSavings).map(c => c.id))
+    _savingsCatCacheTs = now
+  }
+  return _savingsCatCache
+}
+function invalidateSavingsCache() { _savingsCatCache = null }
+
+function isHiddenSavings(t) {
+  if (!isPLTransaction(t)) return false
+  if (t.type === 'transfer') return false
+  if (!(t.amount < 0 || (t.type === 'refund' && t.amount > 0))) return false
+  return t.categoryId && getSavingsCategoryIds().has(t.categoryId)
+}
+
+function sumHiddenSavings(txs) {
+  return txs.reduce((s, t) => s + (isHiddenSavings(t) ? countedExpenseAmount(t) : 0), 0)
+}
+
 // ===== PERIOD PRESETS =====
 function _ym(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
 function _iso(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }

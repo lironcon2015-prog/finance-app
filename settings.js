@@ -282,15 +282,91 @@ function renderCategoryList() {
       <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:.6rem;font-weight:500">${label} (${list.length})</div>
       <div class="cat-grid">
         ${list.map(c => `
-          <div class="cat-chip">
+          <div class="cat-chip" onclick="openCatEditModal('${c.id}')" style="cursor:pointer">
             <div class="cat-chip-left">
               <span class="cat-dot" style="background:${c.color}"></span>
-              ${c.icon} ${c.name}
+              ${c.icon} ${c.name}${c.isSavings ? ' <span class="cat-savings-badge" title="חיסכון חבוי">🪙</span>' : ''}
             </div>
-            ${!c.system ? `<button class="list-item-del" onclick="deleteCategory('${c.id}')">✕</button>` : ''}
+            <span class="cat-chip-edit">✏️</span>
           </div>`).join('')}
       </div>
     </div>`).join('')
+}
+
+// ===== CATEGORY EDIT MODAL =====
+let _catEditId = null
+function openCatEditModal(id) {
+  const cat = getCategoryById(id)
+  if (!cat) return
+  _catEditId = id
+  document.getElementById('catEditTitle').textContent = `עריכת קטגוריה – ${cat.name}`
+  document.getElementById('catEditDeleteBtn').style.display = cat.system ? 'none' : 'inline-flex'
+
+  const typeOptions = [
+    { v: 'expense', l: 'הוצאה' },
+    { v: 'income',  l: 'הכנסה' },
+  ].map(o => `<option value="${o.v}" ${cat.type===o.v?'selected':''}>${o.l}</option>`).join('')
+
+  const isSavingsRow = `
+    <div class="modal-row" id="catEditSavingsRow" style="display:${cat.type==='expense'?'block':'none'}">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="catEditIsSavings" ${cat.isSavings?'checked':''} style="width:auto;margin:0">
+        <span>🪙 הוצאה שהיא בעצם חיסכון</span>
+      </label>
+      <div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem;line-height:1.5">
+        עסקאות בקטגוריה זו ימשיכו להיספר כהוצאה (הכסף אכן יצא מהעו"ש),<br>
+        אבל יוצגו בנפרד בדשבורד ויתווספו לחישוב אחוז החיסכון המורחב בניתוח התזרים.
+      </div>
+    </div>`
+
+  document.getElementById('catEditBody').innerHTML = `
+    <div class="modal-row"><label class="form-label">שם</label><input id="catEditName" value="${cat.name}"></div>
+    <div class="modal-row"><label class="form-label">אייקון (emoji)</label><input id="catEditIcon" value="${cat.icon || ''}" style="max-width:100px"></div>
+    <div class="modal-row"><label class="form-label">צבע</label><input type="color" id="catEditColor" value="${cat.color || '#64748b'}"></div>
+    <div class="modal-row"><label class="form-label">סוג</label><select id="catEditType" onchange="_onCatEditTypeChange()" ${cat.system?'disabled':''}>${typeOptions}</select></div>
+    ${isSavingsRow}
+    <div style="font-size:.78rem;color:var(--text-muted);padding:.5rem .1rem 0">שינויים בשם/אייקון/צבע יחולו מיידית על כל העסקאות הקיימות והעתידיות בקטגוריה.</div>`
+  document.getElementById('catEditModal').classList.add('open')
+}
+
+function _onCatEditTypeChange() {
+  const t = document.getElementById('catEditType').value
+  document.getElementById('catEditSavingsRow').style.display = t === 'expense' ? 'block' : 'none'
+}
+
+function closeCatEditModal() {
+  document.getElementById('catEditModal').classList.remove('open')
+  _catEditId = null
+}
+
+function saveCatEdit() {
+  if (!_catEditId) return
+  const cats = getCategories()
+  const idx  = cats.findIndex(c => c.id === _catEditId)
+  if (idx < 0) return
+  const name = document.getElementById('catEditName').value.trim()
+  if (!name) { alert('שם חובה'); return }
+  cats[idx].name  = name
+  cats[idx].icon  = document.getElementById('catEditIcon').value.trim() || '📋'
+  cats[idx].color = document.getElementById('catEditColor').value
+  if (!cats[idx].system) cats[idx].type = document.getElementById('catEditType').value
+  const isSavingsInput = document.getElementById('catEditIsSavings')
+  cats[idx].isSavings = cats[idx].type === 'expense' && isSavingsInput && isSavingsInput.checked
+  DB.set('finCategories', cats)
+  if (typeof invalidateSavingsCache === 'function') invalidateSavingsCache()
+  closeCatEditModal()
+  renderSettings()
+}
+
+function deleteFromCatModal() {
+  if (!_catEditId) return
+  const cat = getCategoryById(_catEditId)
+  if (!cat || cat.system) return
+  if (!confirm('למחוק את הקטגוריה? עסקאות שסווגו אליה יוצגו כלא־מסווגות.')) return
+  DB.set('finCategories', getCategories().filter(c => c.id !== _catEditId))
+  if (typeof invalidateSavingsCache === 'function') invalidateSavingsCache()
+  closeCatEditModal()
+  renderSettings()
 }
 
 // ===== PROMPT =====

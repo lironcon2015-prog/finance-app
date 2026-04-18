@@ -1,4 +1,4 @@
-const APP_VERSION = '1.8.1'
+const APP_VERSION = '1.8.2'
 
 // ===== STORAGE =====
 const DB = {
@@ -64,7 +64,7 @@ const DEFAULT_CATEGORIES = [
   { id: 'cat_insurance', name: 'ביטוח',              type: 'expense', color: '#6366f1', icon: '🛡️', system: true },
   { id: 'cat_bank',      name: 'עמלות בנק',         type: 'expense', color: '#64748b', icon: '🏦', system: true },
   { id: 'cat_online',    name: 'קניות אונליין',     type: 'expense', color: '#0ea5e9', icon: '📦', system: true },
-  { id: 'cat_invest_out', name: 'חסכונות והשקעות',   type: 'expense', color: '#0ea5e9', icon: '💰', system: true },
+  { id: 'cat_invest_out', name: 'חסכונות והשקעות',   type: 'expense', color: '#0ea5e9', icon: '💰', system: true, isSavings: true },
   { id: 'cat_other_exp', name: 'אחר – הוצאה',       type: 'expense', color: '#9ca3af', icon: '📋', system: true },
   { id: 'cat_salary',    name: 'משכורת',             type: 'income',  color: '#22c55e', icon: '💼', system: true },
   { id: 'cat_extra',     name: 'הכנסה נוספת',       type: 'income',  color: '#10b981', icon: '💰', system: true },
