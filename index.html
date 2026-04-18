@@ -109,6 +109,7 @@
       <h1 class="page-title">עסקאות</h1>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
         <button class="btn-ghost" onclick="runAutoCategorize()">🔁 סווג אוטומטית</button>
+        <button class="btn-ghost" onclick="runGeminiCategorize()">🤖 סווג לא־מסווגים עם AI</button>
         <button class="btn-primary" onclick="addManualTransaction()">+ עסקה חדשה</button>
       </div>
     </div>
@@ -284,6 +285,7 @@
       <button class="tab-btn" onclick="switchTab('api',this)">מפתח API</button>
       <button class="tab-btn" onclick="switchTab('prompt',this)">הנחיות AI</button>
       <button class="tab-btn" onclick="switchTab('templates',this)">תבניות ייבוא</button>
+      <button class="tab-btn" onclick="switchTab('rules',this)">כללי סיווג</button>
       <button class="tab-btn" onclick="switchTab('data',this)">ניהול נתונים</button>
       <button class="tab-btn" onclick="switchTab('backup',this)">גיבוי</button>
     </div>
@@ -395,6 +397,33 @@
       </div>
     </div>
 
+    <div class="tab-panel" id="tab-rules" style="display:none">
+      <div class="card">
+        <div class="card-title">כללי סיווג אוטומטי</div>
+        <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem">
+          כל ייבוא עובר דרך הכללים: מילת מפתח בשם הספק מסווגת אוטומטית לקטגוריה.
+          הכללים שלך גוברים על ברירות המחדל. חשבונות חיסכון/ני"ע יוצרים כללים אוטומטית
+          (הפקדה לחיסכון = הוצאה מסוג "חסכונות והשקעות").
+        </p>
+        <div class="form-row" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end">
+          <div style="flex:1;min-width:200px">
+            <label class="form-label">מילת מפתח / שם ספק</label>
+            <input type="text" id="ruleInputPattern" placeholder="למשל: שופרסל">
+          </div>
+          <div style="flex:1;min-width:180px">
+            <label class="form-label">קטגוריה</label>
+            <select id="ruleInputCategory"></select>
+          </div>
+          <button class="btn-primary" onclick="addRuleFromForm()">הוסף כלל</button>
+        </div>
+        <div id="rulesList" style="margin-top:1rem"></div>
+        <details style="margin-top:1.5rem">
+          <summary style="cursor:pointer;font-size:.85rem;color:var(--text-muted)">הצג כללי ברירת מחדל</summary>
+          <div id="defaultRulesList" style="margin-top:.5rem"></div>
+        </details>
+      </div>
+    </div>
+
     <div class="tab-panel" id="tab-data" style="display:none">
       <div class="card">
         <div class="card-title">ייבואים קודמים</div>
@@ -487,19 +516,19 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.7.2';</script>
-<script src="app.js?v=1.7.2"></script>
-<script src="core.js?v=1.7.2"></script>
-<script src="templates.js?v=1.7.2"></script>
-<script src="autocat.js?v=1.7.2"></script>
-<script src="budget.js?v=1.7.2"></script>
-<script src="recurring.js?v=1.7.2"></script>
-<script src="dashboard.js?v=1.7.2"></script>
-<script src="transactions.js?v=1.7.2"></script>
-<script src="wizard.js?v=1.7.2"></script>
-<script src="import.js?v=1.7.2"></script>
-<script src="analysis.js?v=1.7.2"></script>
-<script src="settings.js?v=1.7.2"></script>
+<script>const _v = '1.8.0';</script>
+<script src="app.js?v=1.8.0"></script>
+<script src="core.js?v=1.8.0"></script>
+<script src="templates.js?v=1.8.0"></script>
+<script src="autocat.js?v=1.8.0"></script>
+<script src="budget.js?v=1.8.0"></script>
+<script src="recurring.js?v=1.8.0"></script>
+<script src="dashboard.js?v=1.8.0"></script>
+<script src="transactions.js?v=1.8.0"></script>
+<script src="wizard.js?v=1.8.0"></script>
+<script src="import.js?v=1.8.0"></script>
+<script src="analysis.js?v=1.8.0"></script>
+<script src="settings.js?v=1.8.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

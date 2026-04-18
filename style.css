@@ -420,3 +420,12 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
   pointer-events: none;
 }
 .propagate-toast.open { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ===== Category Rules ===== */
+.rules-table-head { display: grid; grid-template-columns: 2fr 2fr 1fr; gap: .75rem; padding: .4rem .6rem; font-weight: 600; font-size: .85rem; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.rules-row { display: grid; grid-template-columns: 2fr 2fr 1fr; gap: .75rem; align-items: center; padding: .5rem .6rem; border-bottom: 1px solid var(--border); }
+.rules-pattern { font-weight: 500; }
+.rules-cat { font-size: .9rem; color: var(--text-muted); }
+.rules-default-row { display: flex; gap: 1rem; padding: .3rem .5rem; border-bottom: 1px dashed var(--border); font-size: .82rem; }
+.rules-default-row .rules-pattern { flex: 1; color: var(--text); }
+.rules-default-row .rules-cat { color: var(--accent); }

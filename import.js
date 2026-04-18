@@ -196,11 +196,12 @@ function _finalizeParsedTransactions(parsed, accountId) {
   // or run "זהה אוטומטית חיובי אשראי" in settings to bulk-link after the fact.
 
   _parsedTx = parsed.map(t => {
-    const catFromName = matchCategory(t)
-    const catFromAutocat = catFromName ? '' : suggestFromAutocat(t.vendor)
+    const catFromName    = matchCategory(t)
+    const catFromRules   = catFromName ? '' : matchVendorToCategory(t.vendor, t.description)
+    const catFromAutocat = (catFromName || catFromRules) ? '' : suggestFromAutocat(t.vendor)
     return {
       ...t,
-      _categoryId: catFromName || catFromAutocat,
+      _categoryId: catFromName || catFromRules || catFromAutocat,
       _hash: hashTx(t, accountId),
       _keep: true,
       _accountId: accountId,

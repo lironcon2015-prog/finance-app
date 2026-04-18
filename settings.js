@@ -11,7 +11,84 @@ function renderSettings() {
   document.getElementById('promptMsg').textContent = ''
   renderImportBatches()
   renderTemplatesList()
+  renderRulesList()
   document.getElementById('appVersion').textContent = 'גרסה ' + APP_VERSION
+}
+
+function renderRulesList() {
+  const catSel = document.getElementById('ruleInputCategory')
+  if (catSel) {
+    const cats = getCategories().filter(c => c.type !== 'transfer')
+    catSel.innerHTML = cats.map(c => `<option value="${c.id}">${c.icon||''} ${c.name}</option>`).join('')
+  }
+  const listEl = document.getElementById('rulesList')
+  if (listEl) {
+    const rules = getCategoryRules()
+    const cats = getCategories()
+    if (rules.length === 0) {
+      listEl.innerHTML = '<div style="color:var(--text-muted);font-size:.9rem">אין כללים אישיים. ברירות המחדל פעילות למטה.</div>'
+    } else {
+      listEl.innerHTML = `
+        <div class="rules-table-head">
+          <div>מילת מפתח</div>
+          <div>קטגוריה</div>
+          <div></div>
+        </div>
+        ${rules.map(r => {
+          const c = cats.find(x => x.id === r.categoryId)
+          return `
+            <div class="rules-row">
+              <div class="rules-pattern">${r.pattern}</div>
+              <div class="rules-cat">${c ? `${c.icon||''} ${c.name}` : '(קטגוריה לא קיימת)'}</div>
+              <div><button class="btn-danger" onclick="removeRule('${r.id}')">מחק</button></div>
+            </div>`
+        }).join('')}
+      `
+    }
+  }
+  const defEl = document.getElementById('defaultRulesList')
+  if (defEl) {
+    const cats = getCategories()
+    defEl.innerHTML = DEFAULT_CATEGORY_RULES.map(r => {
+      const c = cats.find(x => x.id === r.categoryId)
+      return `<div class="rules-default-row">
+        <span class="rules-pattern">${r.patterns.join(' · ')}</span>
+        <span class="rules-cat">→ ${c ? `${c.icon||''} ${c.name}` : r.categoryId}</span>
+      </div>`
+    }).join('')
+  }
+}
+
+function addRuleFromForm() {
+  const p = document.getElementById('ruleInputPattern').value.trim()
+  const cid = document.getElementById('ruleInputCategory').value
+  if (!p || !cid) { alert('מילת מפתח וקטגוריה חובה'); return }
+  addCategoryRule(p, cid)
+  document.getElementById('ruleInputPattern').value = ''
+  renderRulesList()
+  // Retroactively re-categorize uncategorized transactions matching the new rule
+  const changed = applyRulesToUncategorized()
+  if (changed > 0) alert(`${changed} עסקאות קיימות סווגו על פי הכלל החדש`)
+}
+
+function removeRule(id) {
+  if (!confirm('למחוק את הכלל?')) return
+  deleteCategoryRule(id)
+  renderRulesList()
+}
+
+// Scan all uncategorized transactions and apply rules retroactively.
+function applyRulesToUncategorized() {
+  const txs = getTransactions()
+  let changed = 0
+  txs.forEach(t => {
+    if (t.categoryId) return
+    if (t.type === 'transfer') return
+    const cid = matchVendorToCategory(t.vendor, t.description)
+    if (cid) { t.categoryId = cid; changed++ }
+  })
+  if (changed > 0) DB.set('finTransactions', txs)
+  return changed
 }
 
 function renderTemplatesList() {

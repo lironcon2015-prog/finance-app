@@ -256,3 +256,76 @@ function fixCcStatementTypes() {
   if (changed > 0) DB.set('finTransactions', txs)
   return changed
 }
+
+// ===== CATEGORY RULES =====
+// Deterministic vendor→category matching. Priority:
+//   1. User-defined rules (finCategoryRules)
+//   2. Account-derived rules (savings/investment accounts auto-contribute)
+//   3. Default seed rules for common Israeli merchants
+// First substring match (case-insensitive) wins.
+
+const DEFAULT_CATEGORY_RULES = [
+  { patterns: ['שופרסל','רמי לוי','ויקטורי','יוחננוף','יינות ביתן','מגה','קרפור','אושר עד','טיב טעם','מחסני השוק','האחים דהן','shufersal','rami levy'], categoryId: 'cat_food' },
+  { patterns: ['סופרפארם','super-pharm','סופר פארם','בי אנד לייף','ניובר','ליפמן פארם'], categoryId: 'cat_health' },
+  { patterns: ['מכבי','כללית','מאוחדת','לאומית','רופא','קופת חולים','בית מרקחת','מרפאה','רנטגן'], categoryId: 'cat_health' },
+  { patterns: ['פז ','דור אלון','סונול','פנגו','טן ','delek','paz','דלק חברה'], categoryId: 'cat_fuel' },
+  { patterns: ['רכבת ישראל','אגד','דן תחבורה','קווים','רב-קו','רב קו','סופרבוס','מוניות','egged','dan tnu','moovit','גט טקסי','יאנגו','gett'], categoryId: 'cat_transport' },
+  { patterns: ['חברת החשמל','חב החשמל','חברת חשמל','בזק','הוט','סלקום','פרטנר','פלאפון','012','019','015'], categoryId: 'cat_bills' },
+  { patterns: ['מי אביבים','הגיחון','מיתב','מי רעננה','מי שבע','תאגיד מים','מקורות'], categoryId: 'cat_bills' },
+  { patterns: ['פז גז','סופרגז','דור גז','אמישראגז','גזטל'], categoryId: 'cat_bills' },
+  { patterns: ['ארנונה','עיריית','מועצה מקומית'], categoryId: 'cat_bills' },
+  { patterns: ['netflix','נטפליקס','spotify','ספוטיפיי','youtube','disney','apple.com','icloud','itunes','hbo','stan','paramount'], categoryId: 'cat_leisure' },
+  { patterns: ['קולנוע','הכרטיס','יס פלאנט','סינמה סיטי','רב-חן','היכל התרבות','פסטיבל','גלילאו','bookme','ticketim','ticmate'], categoryId: 'cat_leisure' },
+  { patterns: ['aliexpress','amazon','amzn','ebay','shein','asos','terminal x','next direct','wish','lightinthebox','temu','zara','h&m'], categoryId: 'cat_online' },
+  { patterns: ['מגדל','הראל','מנורה','הפניקס','כלל ביטוח','איילון ביטוח','ביטוח ישיר','שומרה','clal'], categoryId: 'cat_insurance' },
+  { patterns: ['ביטוח לאומי','מס הכנסה','רשות המסים','משרד התחבורה'], categoryId: 'cat_bills' },
+  { patterns: ['ארומה','ארקפה','גרג','roladin','רולדין','מקדונלד','בורגר','פיצה','דומינוס','kfc','wolt','10bis','tenbis','ten bis','גולדה','starbucks','bbb','japanika','humus'], categoryId: 'cat_rest' },
+  { patterns: ['עמלה','עמלת','ריבית חובה','ריבית זכות','ניהול חשבון','דמי ניהול','דמי כרטיס','שורות','התראות','דמי שורה'], categoryId: 'cat_bank' },
+  { patterns: ['משכורת','שכר עבודה','תלוש שכר'], categoryId: 'cat_salary' },
+  { patterns: ['החזר מס','מס הכנסה החזר','זיכוי מס'], categoryId: 'cat_taxback' },
+]
+
+function getCategoryRules() { return DB.get('finCategoryRules', []) }
+function saveCategoryRules(list) { DB.set('finCategoryRules', list) }
+
+function addCategoryRule(pattern, categoryId) {
+  const rules = getCategoryRules()
+  rules.push({ id: genId(), pattern: String(pattern).trim(), categoryId, createdAt: Date.now() })
+  saveCategoryRules(rules)
+}
+
+function deleteCategoryRule(id) {
+  saveCategoryRules(getCategoryRules().filter(r => r.id !== id))
+}
+
+// Rules derived from savings/investment accounts' paymentVendorPatterns:
+// every pattern auto-categorizes matching bank transactions as "חסכונות והשקעות".
+function _accountDerivedRules() {
+  const rules = []
+  getAccounts().forEach(a => {
+    if (!['savings', 'investment'].includes(a.type)) return
+    ;(a.paymentVendorPatterns || []).forEach(p => {
+      if (p && String(p).trim()) rules.push({ patterns: [p], categoryId: 'cat_invest_out', source: 'account:' + a.id })
+    })
+  })
+  return rules
+}
+
+function matchVendorToCategory(vendor, description) {
+  const text = ((vendor || '') + ' ' + (description || '')).toLowerCase().trim()
+  if (!text) return ''
+
+  const userRules    = getCategoryRules().map(r => ({ patterns: [r.pattern], categoryId: r.categoryId }))
+  const accountRules = _accountDerivedRules()
+  const allRules     = [...userRules, ...accountRules, ...DEFAULT_CATEGORY_RULES]
+
+  for (const rule of allRules) {
+    const patterns = rule.patterns || (rule.pattern ? [rule.pattern] : [])
+    for (const p of patterns) {
+      const needle = String(p).toLowerCase().trim()
+      if (!needle) continue
+      if (text.includes(needle)) return rule.categoryId
+    }
+  }
+  return ''
+}

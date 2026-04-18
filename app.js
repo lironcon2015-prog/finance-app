@@ -1,4 +1,4 @@
-const APP_VERSION = '1.7.2'
+const APP_VERSION = '1.8.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -64,6 +64,7 @@ const DEFAULT_CATEGORIES = [
   { id: 'cat_insurance', name: 'ביטוח',              type: 'expense', color: '#6366f1', icon: '🛡️', system: true },
   { id: 'cat_bank',      name: 'עמלות בנק',         type: 'expense', color: '#64748b', icon: '🏦', system: true },
   { id: 'cat_online',    name: 'קניות אונליין',     type: 'expense', color: '#0ea5e9', icon: '📦', system: true },
+  { id: 'cat_invest_out', name: 'חסכונות והשקעות',   type: 'expense', color: '#0ea5e9', icon: '💰', system: true },
   { id: 'cat_other_exp', name: 'אחר – הוצאה',       type: 'expense', color: '#9ca3af', icon: '📋', system: true },
   { id: 'cat_salary',    name: 'משכורת',             type: 'income',  color: '#22c55e', icon: '💼', system: true },
   { id: 'cat_extra',     name: 'הכנסה נוספת',       type: 'income',  color: '#10b981', icon: '💰', system: true },
@@ -76,6 +77,15 @@ const DEFAULT_CATEGORIES = [
 function initDefaultData() {
   if (!localStorage.getItem('finCategories')) {
     DB.set('finCategories', DEFAULT_CATEGORIES)
+  } else {
+    // Seed newly-added system categories into existing installs
+    const cats = getCategories()
+    const byId = new Set(cats.map(c => c.id))
+    let added = false
+    DEFAULT_CATEGORIES.forEach(dc => {
+      if (dc.system && !byId.has(dc.id)) { cats.push(dc); added = true }
+    })
+    if (added) DB.set('finCategories', cats)
   }
 }
 
@@ -212,6 +222,7 @@ function openEditModal(id) {
     <div class="modal-row"><label class="form-label">סוג</label><select id="editType" onchange="_onEditTypeChange()">${typeOptions}</select></div>
     <div class="modal-row" id="editDestRow" style="display:${showDest}"><label class="form-label">חשבון יעד (להעברה)</label><select id="editDestAccount"><option value="">—</option>${destAccOptions}</select></div>
     <div class="modal-row"><label class="form-label">קטגוריה</label><select id="editCategory"><option value="">ללא קטגוריה</option>${catOptions}</select></div>
+    <div class="modal-row" style="margin-top:-.5rem"><button type="button" class="btn-ghost" style="font-size:.85rem;padding:.45rem .8rem" onclick="applyCategoryToAllSimilar()">החל קטגוריה על כל העסקאות עם אותו ספק (קדימה ואחורה)</button></div>
     <div class="modal-row"><label class="form-label">הערות</label><input id="editNotes" value="${tx.notes || ''}"></div>
   `
   document.getElementById('editModal').classList.add('open')
@@ -296,6 +307,41 @@ function propagateCategoryToSimilar(txs, vendor, categoryId, skipId) {
     count++
   }
   return count
+}
+
+// Manual "apply to all" from edit modal: OVERRIDES existing categorizations
+// on every transaction whose normalized vendor matches the one currently
+// being edited. Confirms with the user first. Writes the current categoryId
+// selected in the modal — even before saving — so user can preview.
+function applyCategoryToAllSimilar() {
+  if (!_editId) return
+  const vendor = document.getElementById('editVendor').value
+  const catId  = document.getElementById('editCategory').value
+  if (!vendor.trim()) { alert('יש להזין שם ספק לפני החלה על דומים'); return }
+  if (!catId)         { alert('יש לבחור קטגוריה לפני החלה על דומים'); return }
+  if (typeof normalizeVendorForAutocat !== 'function') return
+  const target = normalizeVendorForAutocat(vendor)
+  if (!target) { alert('שם הספק לא תקין'); return }
+
+  const txs = getTransactions()
+  const matches = txs.filter(t =>
+    t.vendor && t.type !== 'transfer' && normalizeVendorForAutocat(t.vendor) === target
+  )
+  if (matches.length === 0) { alert('לא נמצאו עסקאות דומות'); return }
+
+  const cat = getCategoryById(catId)
+  const catLabel = cat ? `${cat.icon || ''} ${cat.name}` : catId
+  if (!confirm(`להחיל את הקטגוריה "${catLabel}" על ${matches.length} עסקאות עם אותו ספק (כולל עסקאות שכבר מסווגות)?`)) return
+
+  let changed = 0
+  txs.forEach(t => {
+    if (!t.vendor) return
+    if (t.type === 'transfer') return
+    if (normalizeVendorForAutocat(t.vendor) !== target) return
+    if (t.categoryId !== catId) { t.categoryId = catId; changed++ }
+  })
+  DB.set('finTransactions', txs)
+  showPropagateToast(changed)
 }
 
 function showPropagateToast(n) {

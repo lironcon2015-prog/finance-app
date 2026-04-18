@@ -158,3 +158,97 @@ function closeAutocatModal() {
   document.getElementById('autocatModal').classList.remove('open')
   _autocatPlan = null
 }
+
+// ===== GEMINI VENDOR CATEGORIZATION =====
+// Opt-in fallback: collect unique vendors of uncategorized non-transfer
+// transactions, send them to Gemini as a batch, receive {vendor → categoryId}
+// mapping, apply. Users who prefer fully-local processing can skip this and
+// rely on deterministic rules + manual tagging.
+async function runGeminiCategorize() {
+  const apiKey = getApiKey()
+  if (!apiKey) { alert('חסר מפתח Gemini בהגדרות'); return }
+
+  const txs = getTransactions()
+  const targets = txs.filter(t => !t.categoryId && t.vendor && t.type !== 'transfer')
+  if (targets.length === 0) { alert('אין עסקאות לא־מסווגות'); return }
+
+  // Unique vendors (normalized dedupe, but send original form to Gemini)
+  const seen = new Set()
+  const uniqueVendors = []
+  for (const t of targets) {
+    const k = normalizeVendorForAutocat(t.vendor)
+    if (!k || seen.has(k)) continue
+    seen.add(k)
+    uniqueVendors.push(t.vendor)
+  }
+
+  if (uniqueVendors.length > 200) {
+    if (!confirm(`${uniqueVendors.length} ספקים שונים. ההרצה עלולה לארוך. להמשיך?`)) return
+  }
+
+  const cats = getCategories()
+  const catList = cats
+    .filter(c => c.type === 'expense' || c.type === 'income')
+    .map(c => `- ${c.name} (id=${c.id}, ${c.type === 'expense' ? 'הוצאה' : 'הכנסה'})`)
+    .join('\n')
+
+  const prompt = `סווג כל שם ספק לאחת מהקטגוריות הבאות.
+החזר JSON בלבד בפורמט {"vendor_name":"category_id"} — ללא טקסט נוסף, ללא backticks.
+אם אין התאמה ברורה, השמט את הספק. השתמש ב-id המדויק מהרשימה (cat_...).
+
+קטגוריות זמינות:
+${catList}
+
+ספקים לסיווג:
+${uniqueVendors.map(v => `- ${v}`).join('\n')}`
+
+  const btns = document.querySelectorAll('button[onclick="runGeminiCategorize()"]')
+  btns.forEach(b => { b.disabled = true; b.textContent = '🤖 מסווג עם AI...' })
+
+  try {
+    const body = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 32768 }
+    }
+    const data = await callGemini(apiKey, body)
+    const parts = data.candidates?.[0]?.content?.parts || []
+    let text = ''
+    for (const p of parts) { if (!p.thought && p.text) { text = p.text; break } }
+    if (!text) text = parts.filter(p => !p.thought).map(p => p.text || '').join('')
+    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+
+    let mapping = {}
+    try { mapping = JSON.parse(text) } catch {
+      // Try to extract {...} substring
+      const i = text.indexOf('{'), j = text.lastIndexOf('}')
+      if (i >= 0 && j > i) mapping = JSON.parse(text.slice(i, j + 1))
+    }
+
+    // Normalize mapping keys for matching
+    const catIds = new Set(cats.map(c => c.id))
+    const lookup = {}
+    for (const [vendor, catId] of Object.entries(mapping)) {
+      if (!catIds.has(catId)) continue
+      lookup[normalizeVendorForAutocat(vendor)] = catId
+    }
+
+    // Apply
+    const all = getTransactions()
+    let applied = 0
+    all.forEach(t => {
+      if (t.categoryId || !t.vendor || t.type === 'transfer') return
+      const k = normalizeVendorForAutocat(t.vendor)
+      if (k && lookup[k]) { t.categoryId = lookup[k]; applied++ }
+    })
+    DB.set('finTransactions', all)
+    alert(applied === 0
+      ? 'ה-AI לא הצליח לסווג אף ספק. נסה להוסיף כללים ידניים.'
+      : `ה-AI סיווג ${applied} עסקאות (${Object.keys(lookup).length} ספקים).`)
+    if (typeof renderTransactions === 'function') renderTransactions()
+  } catch (err) {
+    console.error('Gemini categorize error:', err)
+    alert('שגיאה בסיווג עם AI: ' + err.message)
+  } finally {
+    btns.forEach(b => { b.disabled = false; b.textContent = '🤖 סווג לא־מסווגים עם AI' })
+  }
+}
