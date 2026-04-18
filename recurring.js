@@ -1,10 +1,14 @@
 // ===== RECURRING DETECTION =====
 
+// Resolve aliases first (so different raw strings mapped to the same display
+// name — "משיכת שיק 2500" + "דמי שכירות" — group together), then delegate
+// to the canonical normalizer in autocat.js. autocat.js is loaded before
+// recurring.js in index.html, so the function is globally available.
 function _normalizeVendor(v) {
-  // Resolve through vendor aliases FIRST so different raw strings mapped to
-  // the same display name ("משיכת שיק 2500" + "דמי שכירות") group together.
   const resolved = (typeof resolveVendor === 'function') ? resolveVendor(v) : v
-  return (resolved || '').toString().toLowerCase().replace(/[0-9]+/g, '').replace(/\s+/g, ' ').trim()
+  return (typeof normalizeVendorForAutocat === 'function')
+    ? normalizeVendorForAutocat(resolved)
+    : String(resolved || '').toLowerCase().trim()
 }
 
 function _daysBetween(a, b) {

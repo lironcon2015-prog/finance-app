@@ -55,7 +55,11 @@ function excelFileToRows(file) {
     const r = new FileReader()
     r.onload = e => {
       try {
-        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: false })
+        // cellDates:true makes XLSX resolve serial dates into JS Date objects
+        // using the workbook's epoch (1900 OR 1904), so Mac-Excel 1904 files
+        // parse correctly. parseDateValue branches on Date to avoid re-doing
+        // the conversion with the wrong epoch.
+        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true })
         const ws = wb.Sheets[wb.SheetNames[0]]
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' })
         res(rows)
@@ -118,7 +122,17 @@ async function extractRowsFromFile(file) {
 function parseDateValue(raw, format) {
   if (raw == null || raw === '') return null
 
-  // Excel serial date (numeric)
+  // XLSX with cellDates:true returns JS Date (local time) for date cells.
+  // Use local getters here — UTC getters would shift a day back in UTC+2/3.
+  if (raw instanceof Date) {
+    const y = raw.getFullYear(), m = raw.getMonth() + 1, d = raw.getDate()
+    if (!y || !m || !d) return null
+    return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+  }
+
+  // Excel serial date (numeric) — fallback for CSVs / sources that deliver
+  // the raw serial as a number. Assumes the 1900 epoch; 1904-epoch files are
+  // handled above via cellDates:true.
   if (typeof raw === 'number' && isFinite(raw) && raw > 1000 && raw < 80000) {
     const epoch = new Date(Date.UTC(1899, 11, 30))
     const d = new Date(epoch.getTime() + raw * 86400000)
@@ -208,9 +222,10 @@ function parseWithTemplate(rows, template) {
       if (debit && debit !== 0)       amount = -Math.abs(debit)
       else if (credit && credit !== 0) amount = Math.abs(credit)
       else                             amount = null
-    } else {
+    } else if (columns.amount?.mode === 'signed' || !columns.amount?.mode) {
+      // Single signed-amount column. `flipSign` handles sources that use
+      // positives for expenses.
       amount = parseAmountValue(row[columns.amount?.index])
-      // Some sources put expenses as positive — user can flip the sign via template flag
       if (amount != null && columns.amount?.flipSign) amount = -amount
     }
     if (amount == null || amount === 0) { skip('סכום לא תקין'); continue }

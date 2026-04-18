@@ -28,6 +28,7 @@
 - Transfers משפיעים על יתרת שני הצדדים (ראו `getAccountBalance`), אבל לא נספרים כהכנסה/הוצאה ב-P&L.
 - Refund עם `amount > 0` מקטין הוצאות, לא נספר כהכנסה.
 - UI בעברית RTL, מטבע ILS, Chart.js לגרפים, Gemini 2.5 ל-parsing של דוחות.
+- Gemini fallback cascade (`GEMINI_MODELS` ב-`app.js`): `gemini-2.5-flash` → `gemini-2.5-flash-lite`. `callGemini` מעבירה למודל הבא רק על 429/503 או `RESOURCE_EXHAUSTED`/`UNAVAILABLE`.
 
 ## Design principles (not obvious from code)
 
