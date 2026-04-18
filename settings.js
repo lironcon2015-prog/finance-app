@@ -263,8 +263,21 @@ function runAutoLinkTransfers() {
 }
 
 function deleteAccount(id) {
-  if (!confirm('האם למחוק חשבון זה?')) return
+  const acc = getAccounts().find(a => a.id === id)
+  const owned = getTransactions().filter(t => t.accountId === id).length
+  const msg = owned > 0
+    ? `למחוק את חשבון "${acc?.name||''}"?\nפעולה זו תמחק גם ${owned} עסקאות שייכות אליו.`
+    : `למחוק את חשבון "${acc?.name||''}"?`
+  if (!confirm(msg)) return
+  // Drop tx on the deleted account, and scrub stale cross-account links.
+  const remainingTx = getTransactions().filter(t => t.accountId !== id)
+  remainingTx.forEach(t => {
+    if (t.transferAccountId === id)     delete t.transferAccountId
+    if (t.ccPaymentForAccountId === id) delete t.ccPaymentForAccountId
+  })
+  DB.set('finTransactions', remainingTx)
   DB.set('finAccounts', getAccounts().filter(a => a.id !== id))
+  invalidatePLCache()
   renderSettings()
 }
 

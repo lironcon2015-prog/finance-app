@@ -1,4 +1,4 @@
-const APP_VERSION = '1.8.6'
+const APP_VERSION = '1.9.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -156,9 +156,13 @@ async function callGemini(apiKey, body) {
 function exportData() {
   const data = {
     transactions: getTransactions(),
-    accounts: getAccounts(),
-    categories: getCategories(),
-    exportedAt: new Date().toISOString(),
+    accounts:     getAccounts(),
+    categories:   getCategories(),
+    budgets:      getBudgets(),
+    rules:        getCategoryRules(),
+    templates:    getTemplates(),
+    aliases:      getVendorAliases(),
+    exportedAt:   new Date().toISOString(),
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const a = document.createElement('a')
@@ -173,9 +177,17 @@ function importData(input) {
   reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result)
-      if (data.transactions) DB.set('finTransactions', data.transactions)
-      if (data.accounts)     DB.set('finAccounts', data.accounts)
-      if (data.categories)   DB.set('finCategories', data.categories)
+      if (data.transactions) DB.set('finTransactions',     data.transactions)
+      if (data.accounts)     DB.set('finAccounts',         data.accounts)
+      if (data.categories)   DB.set('finCategories',       data.categories)
+      if (data.budgets)      DB.set('finBudgets',          data.budgets)
+      if (data.rules)        DB.set('finCategoryRules',    data.rules)
+      if (data.templates)    DB.set('finImportTemplates',  data.templates)
+      if (data.aliases)      DB.set('finVendorAliases',    data.aliases)
+      invalidatePLCache()
+      invalidateSavingsCache()
+      invalidateCapitalIncomeCache()
+      invalidateVendorAliasCache()
       alert('הנתונים יובאו בהצלחה!')
       renderSettings()
     } catch { alert('שגיאה בקריאת הקובץ') }
@@ -458,6 +470,33 @@ function migrateRevertAutoCc_v1() {
   if (changed > 0) console.log(`Migration: reverted ${changed} auto-linked CC transfers to P&L expenses/income`)
 }
 
+// One-time rescue migration: before v1.9.0, migrateCreditCardTransfers()
+// flipped bank rows matching CC keywords to type='transfer' WITHOUT
+// setting ccPaymentForAccountId/transferAccountId. The three follow-up
+// revert migrations all guard on those link fields, so these "orphaned
+// transfers" slipped through every cleanup and vanished from P&L.
+// This restores them to real income/expense (link fields remain absent,
+// which is correct — they were never linked to anything).
+function migrateOrphanedTransfers_v4() {
+  if (localStorage.getItem('migration_orphaned_v4') === '1') return
+  const txs = getTransactions()
+  const accs = getAccounts()
+  const liquidIds = new Set(
+    accs.filter(a => a.type === 'checking' || a.type === 'cash').map(a => a.id)
+  )
+  let changed = 0
+  txs.forEach(t => {
+    if (t.type !== 'transfer') return
+    if (!liquidIds.has(t.accountId)) return
+    if (t.ccPaymentForAccountId || t.transferAccountId) return
+    t.type = t.amount > 0 ? 'income' : 'expense'
+    changed++
+  })
+  if (changed > 0) DB.set('finTransactions', txs)
+  localStorage.setItem('migration_orphaned_v4', '1')
+  if (changed > 0) console.log(`Migration v4: restored ${changed} orphaned transfers to P&L`)
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
   initDefaultData()
@@ -465,6 +504,7 @@ document.addEventListener('DOMContentLoaded', () => {
   migrateTransferLinking_v2()
   migrateRevertAutoCc_v1()
   migrateRelinkAutoTransfers_v3()
+  migrateOrphanedTransfers_v4()
   navigate('dashboard')
 
   const dz = document.getElementById('dropZone')
