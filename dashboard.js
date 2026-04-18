@@ -165,13 +165,18 @@ function _renderMonthlyChart(all, period) {
 
 function _renderCategoryBreakdown(periodTx, expenses) {
   const bycat = {}
+  let pieTotal = 0
   periodTx.forEach(t => {
     const ca = countedExpenseAmount(t)
     if (ca <= 0) return
+    // Exclude CC-payment bank rows from the category pie — their details
+    // live on the CC account and would distort category attribution.
+    if (t.ccPaymentForAccountId) return
     const cat = getCategoryById(t.categoryId)
     const key = cat?.id || '__none__'
     if (!bycat[key]) bycat[key] = { name: cat?.name || 'לא מסווג', color: cat?.color || '#64748b', total: 0 }
     bycat[key].total += ca
+    pieTotal += ca
   })
   const sorted = Object.values(bycat).sort((a,b) => b.total - a.total).slice(0, 6)
   document.getElementById('catBreakdown').innerHTML = sorted.length === 0
@@ -183,7 +188,7 @@ function _renderCategoryBreakdown(periodTx, expenses) {
           <span style="color:var(--text-secondary)">${formatCurrency(c.total)}</span>
         </div>
         <div class="cat-bar-track">
-          <div class="cat-bar-fill" style="width:${expenses>0?Math.round(c.total/expenses*100):0}%;background:${c.color}"></div>
+          <div class="cat-bar-fill" style="width:${pieTotal>0?Math.round(c.total/pieTotal*100):0}%;background:${c.color}"></div>
         </div>
       </div>`).join('')
 }

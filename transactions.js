@@ -5,8 +5,24 @@ function renderTransactions() {
   _txPage = 0
   _buildTxMonthFilter()
   _buildTxAccountFilter()
+  _buildTxCategoryFilter()
   _buildTxFlowFilter()
   _drawTxTable()
+}
+
+function _buildTxCategoryFilter() {
+  const sel = document.getElementById('txCategoryFilter')
+  if (!sel) return
+  const cur = sel.value
+  const cats = getCategories()
+  const expCats = cats.filter(c => c.type === 'expense')
+  const incCats = cats.filter(c => c.type === 'income')
+  const opt = c => `<option value="${c.id}" ${c.id===cur?'selected':''}>${c.icon||''} ${c.name}</option>`
+  sel.innerHTML = `
+    <option value="">כל הקטגוריות</option>
+    <option value="__none__" ${cur==='__none__'?'selected':''}>— ללא קטגוריה —</option>
+    <optgroup label="הוצאות">${expCats.map(opt).join('')}</optgroup>
+    <optgroup label="הכנסות">${incCats.map(opt).join('')}</optgroup>`
 }
 
 function _buildTxMonthFilter() {
@@ -42,6 +58,7 @@ function _getFiltered() {
   const type   = document.getElementById('txTypeFilter')?.value || 'all'
   const month  = document.getElementById('txMonthFilter')?.value || ''
   const account = document.getElementById('txAccountFilter')?.value || ''
+  const category = document.getElementById('txCategoryFilter')?.value || ''
   const flowAcc = document.getElementById('txFlowFilter')?.value || ''
   return getTransactions()
     .filter(t => {
@@ -51,6 +68,10 @@ function _getFiltered() {
       }
       if (month && !t.date?.startsWith(month)) return false
       if (account && t.accountId !== account) return false
+      if (category) {
+        if (category === '__none__') { if (t.categoryId) return false }
+        else if (t.categoryId !== category) return false
+      }
       if (flowAcc) {
         // Match either side of a transfer involving the selected non-liquid account
         const touches = t.accountId === flowAcc

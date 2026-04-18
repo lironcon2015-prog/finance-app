@@ -1,4 +1,4 @@
-const APP_VERSION = '1.8.0'
+const APP_VERSION = '1.8.1'
 
 // ===== STORAGE =====
 const DB = {
@@ -401,6 +401,38 @@ function migrateTransferLinking_v2() {
   localStorage.setItem('migration_transfer_v2', '1')
 }
 
+// v1.8.1 migration — re-counts ALL auto-linked bank outflows in P&L.
+// Before 1.8.1, `autoLinkTransfersByPattern` flipped bank→CC payments and
+// bank→savings/investment deposits to type='transfer', silently removing them
+// from income/expense totals. This reverts any lingering transfer rows on
+// liquid accounts back to expense/income while PRESERVING the link fields
+// (so balance mirrors and pie-exclusion continue to work).
+function migrateRelinkAutoTransfers_v3() {
+  if (localStorage.getItem('migration_relink_auto_transfers_v3') === '1') return
+  const txs = getTransactions()
+  const accs = getAccounts()
+  const liquidIds = new Set(accs.filter(a => a.type === 'checking' || a.type === 'cash').map(a => a.id))
+  let changed = 0
+  txs.forEach(t => {
+    if (t.type !== 'transfer') return
+    if (!liquidIds.has(t.accountId)) return
+    if (!t.ccPaymentForAccountId && !t.transferAccountId) return
+    // Revert type so the row counts in P&L; keep link fields intact.
+    t.type = t.amount > 0 ? 'income' : 'expense'
+    // For savings/investment links that had no category, assign cat_invest_out
+    if (t.transferAccountId && !t.ccPaymentForAccountId && !t.categoryId) {
+      const dest = accs.find(a => a.id === t.transferAccountId)
+      if (dest && (dest.type === 'savings' || dest.type === 'investment')) {
+        t.categoryId = 'cat_invest_out'
+      }
+    }
+    changed++
+  })
+  if (changed > 0) DB.set('finTransactions', txs)
+  localStorage.setItem('migration_relink_auto_transfers_v3', '1')
+  if (changed > 0) console.log(`Migration v3: reverted ${changed} auto-linked transfers to P&L-counted expenses`)
+}
+
 // Reverts auto-linked CC transfers on bank accounts back to expense/income.
 // Before 1.7.2, imported bank transactions matching a CC pattern were marked as
 // type='transfer' with ccPaymentForAccountId. That choice excluded them from
@@ -432,6 +464,7 @@ document.addEventListener('DOMContentLoaded', () => {
   migrateCreditCardTransfers()
   migrateTransferLinking_v2()
   migrateRevertAutoCc_v1()
+  migrateRelinkAutoTransfers_v3()
   navigate('dashboard')
 
   const dz = document.getElementById('dropZone')

@@ -429,3 +429,13 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .rules-default-row { display: flex; gap: 1rem; padding: .3rem .5rem; border-bottom: 1px dashed var(--border); font-size: .82rem; }
 .rules-default-row .rules-pattern { flex: 1; color: var(--text); }
 .rules-default-row .rules-cat { color: var(--accent); }
+
+/* ===== Recurring ===== */
+.recurring-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .75rem; flex-wrap: wrap; }
+.recurring-table tr.recurring-row { cursor: pointer; transition: background .15s; }
+.recurring-table tr.recurring-row:hover { background: rgba(59,130,246,.08); }
+.recurring-table tr.recurring-row-hidden { opacity: .5; }
+.drill-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin-top: .5rem; }
+.drill-stats > div { background: var(--bg-elev); border: 1px solid var(--border); border-radius: .5rem; padding: .6rem .8rem; display: flex; flex-direction: column; gap: .2rem; }
+.drill-stat-label { font-size: .75rem; color: var(--text-muted); }
+.drill-stat-val { font-weight: 700; font-size: 1rem; }

@@ -114,8 +114,11 @@ function getAccountBalance(accountId, uptoDateISO = null) {
     if (uptoDateISO && t.date > uptoDateISO) return
     if (t.accountId === accountId) {
       balance += t.amount
-    } else if (t.type === 'transfer' && (t.transferAccountId === accountId || t.ccPaymentForAccountId === accountId)) {
-      // Mirror side of the transfer: bank sends -5000 to CC → CC gets +5000
+    } else if (t.transferAccountId === accountId || t.ccPaymentForAccountId === accountId) {
+      // Mirror side of a linked/transfer transaction — independent of type.
+      // A CC payment or savings deposit on the bank should still update the
+      // linked account's balance, even though we keep type='expense' so it
+      // counts in P&L.
       balance -= t.amount
     }
   })
@@ -144,7 +147,7 @@ function getAccountFlow(accountId, period) {
     let delta = 0
     if (t.accountId === accountId) {
       delta = t.amount
-    } else if (t.type === 'transfer' && (t.transferAccountId === accountId || t.ccPaymentForAccountId === accountId)) {
+    } else if (t.transferAccountId === accountId || t.ccPaymentForAccountId === accountId) {
       delta = -t.amount
     }
     if (delta > 0) deposited += delta
@@ -212,8 +215,12 @@ function findMatchingAccountByPattern(vendor, description) {
   return null
 }
 
-// Scan all transactions on liquid source accounts and link matching transfers
-// to their destination (CC / savings / investment). Returns count of updates.
+// Scan all transactions on liquid source accounts and LINK matching outflows
+// to their destination (CC / savings / investment). CRITICAL: the bank line
+// stays as type='expense' so it continues to count in P&L totals — linking
+// only adds a cross-reference for balance mirroring and for excluding the
+// row from the expense-by-category pie (where the details live on the other
+// side). Returns count of updates.
 function autoLinkTransfersByPattern() {
   const txs = getTransactions()
   const accs = getAccounts()
@@ -222,14 +229,20 @@ function autoLinkTransfersByPattern() {
   txs.forEach(t => {
     if (!srcAccIds.has(t.accountId)) return
     if (t.amount >= 0) return
-    if (t.transferAccountId) return
+    if (t.ccPaymentForAccountId || t.transferAccountId) return
     const match = findMatchingAccountByPattern(t.vendor, t.description)
-    if (match) {
-      t.type = 'transfer'
+    if (!match) return
+    if (match.type === 'credit_card') {
+      // Bank-level CC payment: keep as expense so it counts. Tag it so the
+      // category pie can exclude it (details live in the CC account).
+      t.ccPaymentForAccountId = match.id
+    } else {
+      // Savings / investment deposit: keep as expense on bank (shows up in
+      // "חסכונות והשקעות" category). Link for balance mirroring only.
       t.transferAccountId = match.id
-      if (match.type === 'credit_card') t.ccPaymentForAccountId = match.id
-      changed++
+      if (!t.categoryId) t.categoryId = 'cat_invest_out'
     }
+    changed++
   })
   if (changed > 0) DB.set('finTransactions', txs)
   return changed

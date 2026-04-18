@@ -130,6 +130,7 @@
           <option value="uncategorized">ללא קטגוריה</option>
         </select>
         <select id="txAccountFilter" onchange="_txPage=0;_drawTxTable()"></select>
+        <select id="txCategoryFilter" onchange="_txPage=0;_drawTxTable()"></select>
         <select id="txFlowFilter" onchange="_txPage=0;_drawTxTable()"></select>
         <select id="txMonthFilter" onchange="_txPage=0;_drawTxTable()"></select>
       </div>
@@ -217,9 +218,13 @@
         <div style="height:280px"><canvas id="expensePieChart"></canvas></div>
       </div>
       <div class="card">
-        <div class="card-title">פירוט הכנסות</div>
-        <div id="incomeBreakdown"></div>
+        <div class="card-title">פירוט הוצאות</div>
+        <div id="expenseBreakdown"></div>
       </div>
+    </div>
+    <div class="card" style="margin-top:1.25rem">
+      <div class="card-title">פירוט הכנסות</div>
+      <div id="incomeBreakdown"></div>
     </div>
 
     <div class="card" style="margin-top:1.25rem">
@@ -478,6 +483,20 @@
 </div>
 
 <!-- Auto-Categorize Ambiguous Modal -->
+<!-- Recurring drill-down -->
+<div class="modal-overlay" id="recurringDrillModal">
+  <div class="modal-box" style="max-width:820px">
+    <div class="modal-header">
+      <h3 id="drillTitle">היסטוריית עסקאות</h3>
+      <button class="modal-close" onclick="closeRecurringDrill()">✕</button>
+    </div>
+    <div id="drillBody"></div>
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem">
+      <button class="btn-ghost" onclick="closeRecurringDrill()">סגור</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="autocatModal">
   <div class="modal-box" style="max-width:640px">
     <div class="modal-header">
@@ -516,19 +535,19 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.8.0';</script>
-<script src="app.js?v=1.8.0"></script>
-<script src="core.js?v=1.8.0"></script>
-<script src="templates.js?v=1.8.0"></script>
-<script src="autocat.js?v=1.8.0"></script>
-<script src="budget.js?v=1.8.0"></script>
-<script src="recurring.js?v=1.8.0"></script>
-<script src="dashboard.js?v=1.8.0"></script>
-<script src="transactions.js?v=1.8.0"></script>
-<script src="wizard.js?v=1.8.0"></script>
-<script src="import.js?v=1.8.0"></script>
-<script src="analysis.js?v=1.8.0"></script>
-<script src="settings.js?v=1.8.0"></script>
+<script>const _v = '1.8.1';</script>
+<script src="app.js?v=1.8.1"></script>
+<script src="core.js?v=1.8.1"></script>
+<script src="templates.js?v=1.8.1"></script>
+<script src="autocat.js?v=1.8.1"></script>
+<script src="budget.js?v=1.8.1"></script>
+<script src="recurring.js?v=1.8.1"></script>
+<script src="dashboard.js?v=1.8.1"></script>
+<script src="transactions.js?v=1.8.1"></script>
+<script src="wizard.js?v=1.8.1"></script>
+<script src="import.js?v=1.8.1"></script>
+<script src="analysis.js?v=1.8.1"></script>
+<script src="settings.js?v=1.8.1"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

@@ -128,36 +128,177 @@ function forecastCashFlow(monthsAhead = 3) {
   return { months, projectedIncome, projectedExpense, monthlyNet, recurringMonthlyIncome, recurringMonthlyExpense }
 }
 
+// ===== HIDDEN RECURRING =====
+function getHiddenRecurring() { return new Set(DB.get('finRecurringHidden', [])) }
+function setHiddenRecurring(setObj) { DB.set('finRecurringHidden', [...setObj]) }
+function hideRecurring(key) { const s = getHiddenRecurring(); s.add(key); setHiddenRecurring(s); renderRecurring() }
+function unhideRecurring(key) { const s = getHiddenRecurring(); s.delete(key); setHiddenRecurring(s); renderRecurring() }
+
+let _recShowHidden = false
+function toggleShowHiddenRecurring() { _recShowHidden = !_recShowHidden; renderRecurring() }
+
 // ===== RECURRING SCREEN =====
 function renderRecurring() {
   const items = refreshRecurring()
   const container = document.getElementById('recurringList')
   if (!container) return
 
+  const hidden = getHiddenRecurring()
+  const visible  = items.filter(r => !hidden.has(r.key))
+  const hiddenList = items.filter(r =>  hidden.has(r.key))
+
+  const toolbar = `
+    <div class="recurring-toolbar">
+      <div style="color:var(--text-muted);font-size:.85rem">${visible.length} הוצאות קבועות פעילות · ${hiddenList.length} מוסתרות</div>
+      ${hiddenList.length > 0 ? `<button class="btn-ghost" onclick="toggleShowHiddenRecurring()">${_recShowHidden?'הסתר מוסתרות':'הצג מוסתרות'}</button>` : ''}
+    </div>`
+
   if (items.length === 0) {
-    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:3rem">לא זוהו הוצאות/הכנסות קבועות. נדרשות לפחות 3 עסקאות חוזרות לאותו ספק.</p>'
+    container.innerHTML = toolbar +
+      '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:3rem">לא זוהו הוצאות/הכנסות קבועות. נדרשות לפחות 3 עסקאות חוזרות לאותו ספק.</p>'
     return
   }
 
-  container.innerHTML = `
-    <table class="data-table">
-      <thead><tr>
-        <th>ספק</th><th>תדירות</th><th>סכום ממוצע</th>
-        <th>מופע אחרון</th><th>מופע הבא</th><th>מופעים</th>
-      </tr></thead>
-      <tbody>
-        ${items.map(r => `
+  const buildRow = (r, isHidden = false) => `
+    <tr class="recurring-row ${isHidden?'recurring-row-hidden':''}" onclick="openRecurringDrill('${r.key.replace(/'/g,"\\'")}')">
+      <td style="font-weight:500">${r.vendor}</td>
+      <td><span class="type-badge type-income">${r.cadenceLabel}</span></td>
+      <td class="${r.avgAmount>0?'amount-inc':'amount-exp'}">${r.avgAmount>0?'+':''}${formatCurrency(r.avgAmount)}</td>
+      <td>${formatDate(r.lastSeen)}</td>
+      <td>${formatDate(r.nextExpected)}</td>
+      <td>${r.occurrences}</td>
+      <td onclick="event.stopPropagation()">
+        ${isHidden
+          ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="unhideRecurring('${r.key.replace(/'/g,"\\'")}')">שחזר</button>`
+          : `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="hideRecurring('${r.key.replace(/'/g,"\\'")}')">הסתר</button>`}
+      </td>
+    </tr>`
+
+  const visibleTable = visible.length === 0
+    ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">כל ההוצאות הקבועות מוסתרות.</p>'
+    : `<table class="data-table recurring-table">
+        <thead><tr>
+          <th>ספק</th><th>תדירות</th><th>סכום ממוצע</th>
+          <th>מופע אחרון</th><th>מופע הבא</th><th>מופעים</th><th></th>
+        </tr></thead>
+        <tbody>${visible.map(r => buildRow(r, false)).join('')}</tbody>
+      </table>`
+
+  const hiddenBlock = (_recShowHidden && hiddenList.length > 0)
+    ? `<div class="card-title" style="margin-top:1.5rem">מוסתרות (${hiddenList.length})</div>
+       <table class="data-table recurring-table">
+        <thead><tr>
+          <th>ספק</th><th>תדירות</th><th>סכום ממוצע</th>
+          <th>מופע אחרון</th><th>מופע הבא</th><th>מופעים</th><th></th>
+        </tr></thead>
+        <tbody>${hiddenList.map(r => buildRow(r, true)).join('')}</tbody>
+       </table>`
+    : ''
+
+  container.innerHTML = toolbar + visibleTable + hiddenBlock
+}
+
+// ===== DRILL-DOWN =====
+let _drillKey = null
+let _drillRange = '3m'  // '3m' | '6m' | '12m' | 'custom'
+let _drillCustomStart = ''
+let _drillCustomEnd = ''
+
+function openRecurringDrill(key) {
+  _drillKey = key
+  _drillRange = '3m'
+  _drillCustomStart = ''
+  _drillCustomEnd = ''
+  _renderDrillModal()
+  document.getElementById('recurringDrillModal').classList.add('open')
+}
+
+function closeRecurringDrill() {
+  document.getElementById('recurringDrillModal').classList.remove('open')
+  _drillKey = null
+}
+
+function setDrillRange(range) { _drillRange = range; _renderDrillModal() }
+
+function _getDrillBounds() {
+  const now = new Date()
+  const end = _iso(now)
+  if (_drillRange === 'custom') {
+    return { start: _drillCustomStart || _iso(new Date(now.getFullYear(), now.getMonth()-3, 1)), end: _drillCustomEnd || end }
+  }
+  const monthsBack = _drillRange === '12m' ? 12 : _drillRange === '6m' ? 6 : 3
+  return { start: _iso(new Date(now.getFullYear(), now.getMonth() - monthsBack, 1)), end }
+}
+
+function applyDrillCustom() {
+  _drillCustomStart = document.getElementById('drillCustomStart').value
+  _drillCustomEnd   = document.getElementById('drillCustomEnd').value
+  _drillRange = 'custom'
+  _renderDrillModal()
+}
+
+function _renderDrillModal() {
+  if (!_drillKey) return
+  const allTx = getTransactions().filter(t => _normalizeVendor(t.vendor) === _drillKey)
+  const vendor = allTx[0]?.vendor || _drillKey
+  document.getElementById('drillTitle').textContent = `היסטוריית "${vendor}"`
+
+  const { start, end } = _getDrillBounds()
+  const filtered = allTx
+    .filter(t => t.date && t.date >= start && t.date <= end)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+
+  const totalAmount = filtered.reduce((s, t) => s + t.amount, 0)
+  const totalAbs = filtered.reduce((s, t) => s + Math.abs(t.amount), 0)
+  const avg = filtered.length > 0 ? totalAmount / filtered.length : 0
+
+  const rangeBtn = (key, label) =>
+    `<button class="period-btn ${_drillRange===key?'active':''}" onclick="setDrillRange('${key}')">${label}</button>`
+
+  const customRow = _drillRange === 'custom' ? `
+    <div class="period-custom" style="display:flex;margin-top:.5rem">
+      <label class="form-label" style="margin:0">מ:</label>
+      <input type="date" id="drillCustomStart" value="${_drillCustomStart || start}">
+      <label class="form-label" style="margin:0">עד:</label>
+      <input type="date" id="drillCustomEnd" value="${_drillCustomEnd || end}">
+      <button class="btn-primary" style="padding:.35rem .9rem" onclick="applyDrillCustom()">החל</button>
+    </div>` : ''
+
+  const rows = filtered.length === 0
+    ? `<tr><td colspan="4" style="text-align:center;padding:2rem;color:var(--text-muted)">אין עסקאות בתקופה</td></tr>`
+    : filtered.map(t => {
+        const cat = getCategoryById(t.categoryId)
+        return `
           <tr>
-            <td style="font-weight:500">${r.vendor}</td>
-            <td><span class="type-badge type-income">${r.cadenceLabel}</span></td>
-            <td class="${r.avgAmount>0?'amount-inc':'amount-exp'}">${r.avgAmount>0?'+':''}${formatCurrency(r.avgAmount)}</td>
-            <td>${formatDate(r.lastSeen)}</td>
-            <td>${formatDate(r.nextExpected)}</td>
-            <td>${r.occurrences}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>`
+            <td>${formatDate(t.date)}</td>
+            <td style="font-weight:500">${t.vendor || '—'}</td>
+            <td>${cat ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon||''} ${cat.name}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+            <td class="${t.amount>0?'amount-inc':'amount-exp'}" style="font-weight:600">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
+          </tr>`
+      }).join('')
+
+  document.getElementById('drillBody').innerHTML = `
+    <div class="period-selector" style="margin-bottom:1rem">
+      <div class="period-presets">
+        ${rangeBtn('3m', '3 חודשים')}
+        ${rangeBtn('6m', '6 חודשים')}
+        ${rangeBtn('12m', '12 חודשים')}
+        ${rangeBtn('custom', 'טווח מותאם')}
+      </div>
+      ${customRow}
+    </div>
+    <div class="drill-stats">
+      <div><span class="drill-stat-label">עסקאות</span><span class="drill-stat-val">${filtered.length}</span></div>
+      <div><span class="drill-stat-label">סה"כ</span><span class="drill-stat-val ${totalAmount>=0?'income-color':'expense-color'}">${totalAmount>=0?'+':''}${formatCurrency(totalAmount)}</span></div>
+      <div><span class="drill-stat-label">ממוצע</span><span class="drill-stat-val">${formatCurrency(avg)}</span></div>
+      <div><span class="drill-stat-label">טווח</span><span class="drill-stat-val" style="font-size:.85rem">${formatDate(start)} – ${formatDate(end)}</span></div>
+    </div>
+    <div style="overflow-x:auto;margin-top:1rem">
+      <table class="data-table">
+        <thead><tr><th>תאריך</th><th>ספק</th><th>קטגוריה</th><th style="text-align:left">סכום</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`
 }
 
 function renderCashFlowForecast(containerId) {

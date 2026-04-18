@@ -33,8 +33,11 @@ function _drawAnalysis() {
       </div>
     </div>`).join('')
 
-  // Expense pie
+  // Expense pie (excludes CC-payment bank rows — details live in CC account)
   _renderExpensePie(periodTx)
+
+  // Expense breakdown (same scope as pie, in list form)
+  _renderExpenseBreakdown(periodTx)
 
   // Income breakdown
   _renderIncomeBreakdown(periodTx, income)
@@ -60,6 +63,7 @@ function _renderExpensePie(periodTx) {
   periodTx.forEach(t => {
     const ca = countedExpenseAmount(t)
     if (ca <= 0) return
+    if (t.ccPaymentForAccountId) return
     const cat = getCategoryById(t.categoryId)
     const key = cat?.id || '__none__'
     if (!expByCat[key]) expByCat[key] = { name: cat?.name||'לא מסווג', color: cat?.color||'#64748b', total: 0 }
@@ -85,6 +89,34 @@ function _renderExpensePie(periodTx) {
       }
     })
   }
+}
+
+function _renderExpenseBreakdown(periodTx) {
+  const expByCat = {}
+  let totalForPct = 0
+  periodTx.forEach(t => {
+    const ca = countedExpenseAmount(t)
+    if (ca <= 0) return
+    if (t.ccPaymentForAccountId) return
+    const cat = getCategoryById(t.categoryId)
+    const key = cat?.id || '__none__'
+    if (!expByCat[key]) expByCat[key] = { name: cat?.name || 'לא מסווג', color: cat?.color || '#64748b', total: 0 }
+    expByCat[key].total += ca
+    totalForPct += ca
+  })
+  const rows = Object.values(expByCat).sort((a,b) => b.total - a.total)
+  document.getElementById('expenseBreakdown').innerHTML = rows.length === 0
+    ? '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין הוצאות לתקופה</p>'
+    : rows.map(r => `
+      <div class="cat-bar-item">
+        <div class="cat-bar-header">
+          <span>${r.name}</span>
+          <span style="color:var(--expense);font-weight:600">${formatCurrency(r.total)}</span>
+        </div>
+        <div class="cat-bar-track">
+          <div class="cat-bar-fill" style="width:${totalForPct>0?Math.round(r.total/totalForPct*100):0}%;background:${r.color}"></div>
+        </div>
+      </div>`).join('')
 }
 
 function _renderIncomeBreakdown(periodTx, income) {
