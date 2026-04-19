@@ -22,6 +22,7 @@ function _classifyCadence(gaps) {
   if (median >= 28 && median <= 31) return { cadence: 'monthly', label: 'חודשי', days: 30 }
   if (median >= 13 && median <= 15) return { cadence: 'biweekly', label: 'דו-שבועי', days: 14 }
   if (median >= 6 && median <= 8) return { cadence: 'weekly', label: 'שבועי', days: 7 }
+  if (median >= 55 && median <= 65) return { cadence: 'bimonthly', label: 'דו-חודשי', days: 60 }
   if (median >= 88 && median <= 95) return { cadence: 'quarterly', label: 'רבעוני', days: 90 }
   if (median >= 360 && median <= 370) return { cadence: 'annual', label: 'שנתי', days: 365 }
   return null

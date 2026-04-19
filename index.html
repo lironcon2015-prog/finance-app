@@ -326,6 +326,9 @@
     </div>
 
     <div class="tab-panel" id="tab-budget" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:1rem">
+        <button class="btn-primary" onclick="openBudgetGenModal()">✨ הצע תקציב מ-3 חודשים</button>
+      </div>
       <div class="card">
         <div class="card-title">תקציב חודשי לפי קטגוריה</div>
         <div id="budgetList"></div>
@@ -593,25 +596,44 @@
   </div>
 </div>
 
+<!-- Budget Generator -->
+<div class="modal-overlay" id="budgetGenModal">
+  <div class="modal-box" style="max-width:960px">
+    <div class="modal-header">
+      <h3>הצעת תקציב מ-3 חודשים אחרונים</h3>
+      <button class="modal-close" onclick="closeBudgetGenModal()">✕</button>
+    </div>
+    <div id="budgetGenBody"></div>
+    <div style="display:flex;gap:.75rem;justify-content:space-between;margin-top:1.25rem;flex-wrap:wrap">
+      <button class="btn-ghost" id="bgenAdviceBtn" onclick="adviseBudgetWithGemini()">💡 ייעוץ AI</button>
+      <div style="display:flex;gap:.75rem">
+        <button class="btn-ghost" onclick="closeBudgetGenModal()">ביטול</button>
+        <button class="btn-primary" onclick="applyBudgetProposals()">החל</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Update Toast -->
 <div id="updateToast" class="update-toast">
   <span>✨ גרסה חדשה זמינה!</span>
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.10.0';</script>
-<script src="app.js?v=1.10.0"></script>
-<script src="core.js?v=1.10.0"></script>
-<script src="templates.js?v=1.10.0"></script>
-<script src="autocat.js?v=1.10.0"></script>
-<script src="budget.js?v=1.10.0"></script>
-<script src="recurring.js?v=1.10.0"></script>
-<script src="dashboard.js?v=1.10.0"></script>
-<script src="transactions.js?v=1.10.0"></script>
-<script src="wizard.js?v=1.10.0"></script>
-<script src="import.js?v=1.10.0"></script>
-<script src="analysis.js?v=1.10.0"></script>
-<script src="settings.js?v=1.10.0"></script>
+<script>const _v = '1.11.0';</script>
+<script src="app.js?v=1.11.0"></script>
+<script src="core.js?v=1.11.0"></script>
+<script src="templates.js?v=1.11.0"></script>
+<script src="autocat.js?v=1.11.0"></script>
+<script src="budget.js?v=1.11.0"></script>
+<script src="budgetGen.js?v=1.11.0"></script>
+<script src="recurring.js?v=1.11.0"></script>
+<script src="dashboard.js?v=1.11.0"></script>
+<script src="transactions.js?v=1.11.0"></script>
+<script src="wizard.js?v=1.11.0"></script>
+<script src="import.js?v=1.11.0"></script>
+<script src="analysis.js?v=1.11.0"></script>
+<script src="settings.js?v=1.11.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>
