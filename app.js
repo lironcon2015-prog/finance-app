@@ -1,4 +1,4 @@
-const APP_VERSION = '1.9.2'
+const APP_VERSION = '1.10.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -518,6 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
   migrateRevertAutoCc_v1()
   migrateRelinkAutoTransfers_v3()
   migrateOrphanedTransfers_v4()
+  migrateBudgetType_v1()
   navigate('dashboard')
 
   const dz = document.getElementById('dropZone')

@@ -3,7 +3,7 @@ const TX_PAGE_SIZE = 40
 
 function renderTransactions() {
   _txPage = 0
-  _buildTxMonthFilter()
+  renderPeriodSelector('txPeriodSelector', () => { _txPage = 0; _drawTxTable() })
   _buildTxAccountFilter()
   _buildTxCategoryFilter()
   _buildTxFlowFilter()
@@ -23,15 +23,6 @@ function _buildTxCategoryFilter() {
     <option value="__none__" ${cur==='__none__'?'selected':''}>— ללא קטגוריה —</option>
     <optgroup label="הוצאות">${expCats.map(opt).join('')}</optgroup>
     <optgroup label="הכנסות">${incCats.map(opt).join('')}</optgroup>`
-}
-
-function _buildTxMonthFilter() {
-  const all = getTransactions()
-  const months = [...new Set(all.map(t => t.date?.slice(0,7)).filter(Boolean))].sort((a,b)=>b.localeCompare(a))
-  const sel = document.getElementById('txMonthFilter')
-  const cur = sel.value
-  sel.innerHTML = '<option value="">כל החודשים</option>' +
-    months.map(m => `<option value="${m}" ${m===cur?'selected':''}>${m}</option>`).join('')
 }
 
 function _buildTxAccountFilter() {
@@ -56,21 +47,20 @@ function _buildTxFlowFilter() {
 function _getFiltered() {
   const search = document.getElementById('txSearch')?.value.toLowerCase() || ''
   const type   = document.getElementById('txTypeFilter')?.value || 'all'
-  const month  = document.getElementById('txMonthFilter')?.value || ''
   const account = document.getElementById('txAccountFilter')?.value || ''
   const category = document.getElementById('txCategoryFilter')?.value || ''
   const flowAcc = document.getElementById('txFlowFilter')?.value || ''
+  const period = getActivePeriod()
   // Treat a tx as uncategorized if it has no categoryId, or if its
   // categoryId points at a category that was deleted.
   const validCatIds = new Set(getCategories().map(c => c.id))
   const isUncat = t => !t.categoryId || !validCatIds.has(t.categoryId)
-  return getTransactions()
+  return filterByPeriod(getTransactions(), period)
     .filter(t => {
       if (type !== 'all') {
         if (type === 'uncategorized') { if (!isUncat(t)) return false }
         else if (t.type !== type) return false
       }
-      if (month && !t.date?.startsWith(month)) return false
       if (account && t.accountId !== account) return false
       if (category) {
         if (category === '__none__') { if (!isUncat(t)) return false }

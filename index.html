@@ -113,6 +113,7 @@
         <button class="btn-primary" onclick="addManualTransaction()">+ עסקה חדשה</button>
       </div>
     </div>
+    <div id="txPeriodSelector"></div>
     <div class="card">
       <div class="filters-bar">
         <div class="search-wrap">
@@ -132,7 +133,6 @@
         <select id="txAccountFilter" onchange="_txPage=0;_drawTxTable()"></select>
         <select id="txCategoryFilter" onchange="_txPage=0;_drawTxTable()"></select>
         <select id="txFlowFilter" onchange="_txPage=0;_drawTxTable()"></select>
-        <select id="txMonthFilter" onchange="_txPage=0;_drawTxTable()"></select>
       </div>
       <div class="tx-summary" id="txSummary"></div>
       <div id="txTable"></div>
@@ -599,19 +599,19 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.9.2';</script>
-<script src="app.js?v=1.9.2"></script>
-<script src="core.js?v=1.9.2"></script>
-<script src="templates.js?v=1.9.2"></script>
-<script src="autocat.js?v=1.9.2"></script>
-<script src="budget.js?v=1.9.2"></script>
-<script src="recurring.js?v=1.9.2"></script>
-<script src="dashboard.js?v=1.9.2"></script>
-<script src="transactions.js?v=1.9.2"></script>
-<script src="wizard.js?v=1.9.2"></script>
-<script src="import.js?v=1.9.2"></script>
-<script src="analysis.js?v=1.9.2"></script>
-<script src="settings.js?v=1.9.2"></script>
+<script>const _v = '1.10.0';</script>
+<script src="app.js?v=1.10.0"></script>
+<script src="core.js?v=1.10.0"></script>
+<script src="templates.js?v=1.10.0"></script>
+<script src="autocat.js?v=1.10.0"></script>
+<script src="budget.js?v=1.10.0"></script>
+<script src="recurring.js?v=1.10.0"></script>
+<script src="dashboard.js?v=1.10.0"></script>
+<script src="transactions.js?v=1.10.0"></script>
+<script src="wizard.js?v=1.10.0"></script>
+<script src="import.js?v=1.10.0"></script>
+<script src="analysis.js?v=1.10.0"></script>
+<script src="settings.js?v=1.10.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>
