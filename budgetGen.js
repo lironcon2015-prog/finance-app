@@ -64,11 +64,14 @@ function _bgCurrentMonthKey() {
 }
 
 // Amount contributed by a tx to a category's baseline, by category type.
-// Expense categories use countedExpenseAmount (P&L magnitude).
+// Expense categories use analysisExpenseAmount — i.e. the CC *detail* lines
+// per category, not the lump-sum bank payment. That's the right scope for
+// budgeting: a budget for "מכולת" tracks individual grocery purchases, not
+// the consolidated CC charge that hits the bank.
 // Income categories use the raw positive amount when counted income.
-function _bgCategoryAmount(t, type) {
+function _bgCategoryAmount(t, type, savingsInvestIds) {
   if (type === 'income') return isCountedIncome(t) ? t.amount : 0
-  return countedExpenseAmount(t)
+  return analysisExpenseAmount(t, savingsInvestIds)
 }
 
 // A recurring item counts as "hitting this month" if nextExpected lands
@@ -84,6 +87,7 @@ function generateBudgetProposals() {
   const cats = getCategories()
   const recurring = getRecurring() || []
   const txs = getTransactions()
+  const savingsInvestIds = analysisExpenseSavingsInvestIds()
   const now = new Date()
 
   const startISO = `${months[0]}-01`
@@ -101,7 +105,7 @@ function generateBudgetProposals() {
     const perMonth = months.map(m =>
       catTxs
         .filter(t => t.date.startsWith(m))
-        .reduce((s, t) => s + _bgCategoryAmount(t, type), 0)
+        .reduce((s, t) => s + _bgCategoryAmount(t, type, savingsInvestIds), 0)
     )
     const { trimmed, outliers, wasTrimmed } = _bgTrimmedMean25(perMonth)
     const median = _bgMedian(perMonth)

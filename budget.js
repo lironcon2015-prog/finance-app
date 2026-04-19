@@ -33,13 +33,19 @@ function deleteBudget(categoryId) {
 function computeBudgetStatus(monthKey) {
   const budgets = getBudgets()
   const txs = getTransactions().filter(t => t.date?.startsWith(monthKey))
+  // Budget tracking uses the analysis scope: per-category CC detail lines
+  // count toward the category budget, NOT the lump-sum bank payment. This
+  // matches the budget generator (budgetGen.js) so proposed vs. actual
+  // line up — otherwise a "groceries" budget would always show 0 spent
+  // while the consolidated CC charge sits in a generic "Credit Card" line.
+  const savingsInvestIds = analysisExpenseSavingsInvestIds()
   return budgets.map(b => {
     const cat = getCategoryById(b.categoryId)
     const catTxs = txs.filter(t => t.categoryId === b.categoryId)
     const type = b.type || 'expense'
     const actual = type === 'income'
       ? catTxs.filter(isCountedIncome).reduce((s,t)=>s+t.amount,0)
-      : catTxs.reduce((s,t)=>s+countedExpenseAmount(t),0)
+      : catTxs.reduce((s,t)=>s+analysisExpenseAmount(t, savingsInvestIds),0)
     const budget = b.amount
     const remaining = budget - actual
     const pct = budget > 0 ? (actual / budget) * 100 : 0
