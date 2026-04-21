@@ -1,7 +1,6 @@
 function renderSettings() {
   renderAccountList()
   renderCategoryList()
-  renderBudgetSettings()
   const key = getApiKey()
   document.getElementById('apiKeyInput').value = key
   document.getElementById('apiKeyMsg').textContent = key ? '✅ מפתח שמור' : ''

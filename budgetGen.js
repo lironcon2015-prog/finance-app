@@ -1,21 +1,24 @@
-// ===== AI BUDGET GENERATOR (v1.11) =====
-// Proposes a monthly budget per category (expense + expected income) from the
-// last 3 *complete* calendar months. All math runs locally so the user can
-// audit every number; the Gemini advisor (optional) only produces narrative
-// commentary, never changes numbers.
+// ===== AI BUDGET GENERATOR (v1.12) =====
+// Proposes a monthly budget per category for a TARGET MONTH, based on the 3
+// *complete* calendar months immediately before that target. All math runs
+// locally so the user can audit every number; the Gemini advisor (optional)
+// produces narrative commentary only — never changes numbers.
 //
-// Outlier rule (user spec): if one month is >25% above the mean of the
-// *other* months, treat it as a one-off and exclude it from the baseline.
-// Applied symmetrically for expenses and income (an unusually low or
-// unusually high month are both handled — ratio uses abs values).
+// v1.12 formula:
+//   baseline = trimmedMean(last 3 months actual)
+//   suggested_raw = hasPrevBudget ? 0.7 * baseline + 0.3 * prevMonthBudget
+//                                 : baseline
+//   recurringFloor = Σ non-monthly recurring items hitting the target month
+//   suggested = max(suggested_raw, recurringFloor), rounded to 10
 //
-// Recurring overlay: non-monthly recurring items (bi-monthly, quarterly,
-// annual, dividends) are surfaced per-category with whether they're
-// expected to hit the current month, so the user can adjust the suggested
-// number when a line like ארנונה is due.
+// Outlier rule (25%): if one month is >25% above the mean of the *other*
+// months, treat it as a one-off and exclude it from the baseline. Applied
+// symmetrically for expenses and income (unusual low/high both handled via
+// abs ratio).
 
 let _budgetGenProposals = null
 let _budgetGenAdvice = ''
+let _budgetGenTargetMonth = null  // 'YYYY-MM'
 
 function _bgMean(arr) {
   if (arr.length === 0) return 0
@@ -30,7 +33,6 @@ function _bgMedian(arr) {
 }
 
 // For each value v_i, compare to mean-of-others. If ratio >1.25 → outlier.
-// Returns trimmed mean (kept values only) and the set of outlier indices.
 function _bgTrimmedMean25(values) {
   if (values.length <= 1) return { trimmed: values[0] || 0, outliers: [], wasTrimmed: false }
   const outliers = []
@@ -46,56 +48,78 @@ function _bgTrimmedMean25(values) {
   return { trimmed, outliers, wasTrimmed: outliers.length > 0 }
 }
 
-// Last N *complete* calendar months ending with the month just before today.
-// For Apr 19 2026 with n=3 → ['2026-01', '2026-02', '2026-03'].
-function _bgLastCompleteMonths(n) {
-  const now = new Date()
-  const out = []
-  for (let i = n; i >= 1; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    out.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)
-  }
-  return out
-}
-
 function _bgCurrentMonthKey() {
   const n = new Date()
   return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`
 }
 
+function _bgPrevMonthKey(monthKey) {
+  const [y, m] = monthKey.split('-').map(Number)
+  const d = new Date(y, m - 2, 1)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+}
+
+// Last N complete calendar months BEFORE targetMonth.
+// For target=2026-05 with n=3 → ['2026-02','2026-03','2026-04'].
+function _bgLastCompleteMonthsBefore(targetMonth, n) {
+  const [y, m] = targetMonth.split('-').map(Number)
+  const out = []
+  for (let i = n; i >= 1; i--) {
+    const d = new Date(y, m - 1 - i, 1)
+    out.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)
+  }
+  return out
+}
+
 // Amount contributed by a tx to a category's baseline, by category type.
-// Expense categories use analysisExpenseAmount — i.e. the CC *detail* lines
-// per category, not the lump-sum bank payment. That's the right scope for
-// budgeting: a budget for "מכולת" tracks individual grocery purchases, not
-// the consolidated CC charge that hits the bank.
-// Income categories use the raw positive amount when counted income.
+// Expense uses analysisExpenseAmount (CC detail per category, not lump sum) —
+// matches the budget tracking scope in computeBudgetStatus.
 function _bgCategoryAmount(t, type, savingsInvestIds) {
   if (type === 'income') return isCountedIncome(t) ? t.amount : 0
   return analysisExpenseAmount(t, savingsInvestIds)
 }
 
-// A recurring item counts as "hitting this month" if nextExpected lands
-// within the current month. Monthly cadence always hits.
-function _bgIsExpectedThisMonth(r) {
+// Does recurring item r land in monthKey? Monthly always hits. For
+// bi-monthly/quarterly/annual, walk forward from lastSeen by cadenceDays
+// and check if any iteration falls inside monthKey.
+function _bgRecurringHitsMonth(r, monthKey) {
   if (r.cadence === 'monthly') return true
-  const cm = _bgCurrentMonthKey()
-  return !!(r.nextExpected && r.nextExpected.startsWith(cm))
+  if (!r.lastSeen || !r.cadenceDays) return false
+  const [ty, tm] = monthKey.split('-').map(Number)
+  const monthStart = new Date(ty, tm - 1, 1).getTime()
+  const monthEnd   = new Date(ty, tm, 1).getTime() - 1
+  const [ly, lm, ld] = r.lastSeen.split('-').map(Number)
+  let d = new Date(ly, lm - 1, ld)
+  for (let i = 0; i < 40; i++) {
+    const t = d.getTime()
+    if (t >= monthStart && t <= monthEnd) return true
+    if (t > monthEnd) return false
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + r.cadenceDays)
+  }
+  return false
 }
 
-function generateBudgetProposals() {
-  const months = _bgLastCompleteMonths(3)
+function generateBudgetProposals(targetMonth) {
+  const target = targetMonth || _bgCurrentMonthKey()
+  _budgetGenTargetMonth = target
+  const months = _bgLastCompleteMonthsBefore(target, 3)
   const cats = getCategories()
-  const recurring = getRecurring() || []
+  const recurring = (typeof getRecurring === 'function' ? getRecurring() : []) || []
   const txs = getTransactions()
   const savingsInvestIds = analysisExpenseSavingsInvestIds()
-  const now = new Date()
 
+  // Date range: first day of earliest month through last day of most recent.
   const startISO = `${months[0]}-01`
-  // end of the *previous* month
-  const endDate = new Date(now.getFullYear(), now.getMonth(), 0)
+  const [ey, em] = months[months.length - 1].split('-').map(Number)
+  const endDate = new Date(ey, em, 0)  // last day of that month
   const endISO = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,'0')}-${String(endDate.getDate()).padStart(2,'0')}`
-
   const periodTx = txs.filter(t => t.date && t.date >= startISO && t.date <= endISO)
+
+  // Last-month budgets (for 70/30 blend), keyed by categoryId|type.
+  const prevMonthKey = _bgPrevMonthKey(target)
+  const prevBudgets = (typeof getBudgetsForMonth === 'function') ? getBudgetsForMonth(prevMonthKey) : []
+  const prevByKey = {}
+  prevBudgets.forEach(b => { prevByKey[b.categoryId + '|' + (b.type || 'expense')] = b })
 
   const proposals = []
   for (const cat of cats) {
@@ -110,23 +134,30 @@ function generateBudgetProposals() {
     const { trimmed, outliers, wasTrimmed } = _bgTrimmedMean25(perMonth)
     const median = _bgMedian(perMonth)
     const mean = _bgMean(perMonth)
-    // Round suggestion to nearest 10 (Shekel)
-    const suggested = Math.max(0, Math.round(trimmed / 10) * 10)
 
-    // Non-monthly recurring in this category
+    const prevBudget = prevByKey[cat.id + '|' + type]?.amount
+    const hasPrev = typeof prevBudget === 'number' && prevBudget > 0
+    const blended = hasPrev ? 0.7 * trimmed + 0.3 * prevBudget : trimmed
+
     const recForCat = recurring.filter(r => r.categoryId === cat.id)
     const nonMonthlyRec = recForCat.filter(r => r.cadence !== 'monthly')
+    const recurringHits = nonMonthlyRec.filter(r => _bgRecurringHitsMonth(r, target))
+    const recurringFloor = recurringHits.reduce((s, r) => s + Math.abs(r.avgAmount), 0)
+
+    const raw = Math.max(blended, recurringFloor)
+    const suggested = Math.max(0, Math.round(raw / 10) * 10)
+    const flooredByRecurring = recurringFloor > blended && recurringFloor > 0
+
     const notes = nonMonthlyRec.map(r => ({
       vendor: r.vendor,
       cadence: r.cadenceLabel,
       cadenceKey: r.cadence,
       avgAmount: r.avgAmount,
-      expectedThisMonth: _bgIsExpectedThisMonth(r),
+      expectedThisMonth: _bgRecurringHitsMonth(r, target),
     }))
 
-    // Skip truly-empty categories (no activity and no non-monthly expected flow)
     const totalAbs = perMonth.reduce((s,v)=>s+Math.abs(v),0)
-    if (totalAbs === 0 && notes.length === 0) continue
+    if (totalAbs === 0 && notes.length === 0 && !hasPrev) continue
 
     proposals.push({
       categoryId: cat.id,
@@ -137,6 +168,10 @@ function generateBudgetProposals() {
       mean,
       median,
       trimmedMean: trimmed,
+      prevBudget: hasPrev ? prevBudget : null,
+      blended,
+      recurringFloor,
+      flooredByRecurring,
       suggested,
       outliers,
       wasTrimmed,
@@ -145,7 +180,6 @@ function generateBudgetProposals() {
     })
   }
 
-  // Sort: expenses first by magnitude, then income by magnitude
   proposals.sort((a, b) => {
     if (a.type !== b.type) return a.type === 'expense' ? -1 : 1
     return Math.abs(b.suggested) - Math.abs(a.suggested)
@@ -157,9 +191,10 @@ function generateBudgetProposals() {
 
 // ===== UI =====
 
-function openBudgetGenModal() {
+function openBudgetGenModal(targetMonth) {
   _budgetGenAdvice = ''
-  generateBudgetProposals()
+  const target = targetMonth || (typeof getBudgetScreenMonth === 'function' ? getBudgetScreenMonth() : _bgCurrentMonthKey())
+  generateBudgetProposals(target)
   _renderBudgetGenModal()
   document.getElementById('budgetGenModal').classList.add('open')
 }
@@ -172,8 +207,14 @@ function _renderBudgetGenModal() {
   const body = document.getElementById('budgetGenBody')
   if (!body) return
   const props = _budgetGenProposals || []
+  const targetLabel = (typeof _budgetFormatMonth === 'function' && _budgetGenTargetMonth)
+    ? _budgetFormatMonth(_budgetGenTargetMonth)
+    : (_budgetGenTargetMonth || '')
+  const header = document.getElementById('budgetGenTitle')
+  if (header) header.textContent = `הצעת תקציב ל-${targetLabel}`
+
   if (props.length === 0) {
-    body.innerHTML = '<p style="color:var(--text-muted);padding:2rem;text-align:center">אין מספיק נתונים ב-3 החודשים האחרונים להצעת תקציב.</p>'
+    body.innerHTML = '<p style="color:var(--text-muted);padding:2rem;text-align:center">אין מספיק נתונים ב-3 החודשים שקדמו לחודש היעד להצעת תקציב.</p>'
     return
   }
   const expProps = props.filter(p => p.type === 'expense')
@@ -190,9 +231,15 @@ function _renderBudgetGenModal() {
       '<div class="bgen-notes">' +
       p.recurringNotes.map(n => `
         <span class="bgen-note ${n.expectedThisMonth?'bgen-note-hot':''}" title="ממוצע ${formatCurrency(n.avgAmount)}">
-          ${n.vendor} · ${n.cadence}${n.expectedThisMonth?' · צפוי החודש':''}
+          ${n.vendor} · ${n.cadence}${n.expectedThisMonth?' · צפוי בחודש היעד':''}
         </span>`).join('') + '</div>'
     const outBadge = p.wasTrimmed ? '<span class="bgen-badge">חריג הוחרג</span>' : ''
+    const prevLine = p.prevBudget != null
+      ? `<div>חודש קודם: ${formatCurrency(p.prevBudget)}</div><div>בלנד 70/30: ${formatCurrency(p.blended)}</div>`
+      : ''
+    const floorLine = p.flooredByRecurring
+      ? `<div class="bgen-floor-tag" title="המחזורי-הלא-חודשי שצפוי בחודש היעד גבוה מהבסיס — התקציב הועלה להתאמה">📌 רצפה ממחזורי: ${formatCurrency(p.recurringFloor)}</div>`
+      : ''
     return `
       <tr>
         <td><input type="checkbox" onchange="_toggleBudgetProposal(${idx})" ${p.include?'checked':''}></td>
@@ -201,6 +248,9 @@ function _renderBudgetGenModal() {
         <td class="bgen-stats">
           <div>חציון: ${formatCurrency(p.median)}</div>
           <div>ממוצע: ${formatCurrency(p.mean)}</div>
+          <div>מקוצץ: ${formatCurrency(p.trimmedMean)}</div>
+          ${prevLine}
+          ${floorLine}
           ${outBadge}
         </td>
         <td>
@@ -239,8 +289,8 @@ function _renderBudgetGenModal() {
 
   body.innerHTML = `
     <div style="color:var(--text-muted);font-size:.85rem;margin-bottom:.75rem">
-      התבסס על 3 חודשים אחרונים (מלאים). ערכים חריגים — מעל 25% מעל ממוצע החודשים האחרים — הוחרגו מהבסיס.
-      הערות של הוצאות דו-חודשיות/רבעוניות מוצגות לצד הקטגוריה.
+      מבוסס על 3 חודשים מלאים לפני ${targetLabel}. ערכים חריגים (מעל 25% מעל ממוצע האחרים) הוחרגו מהבסיס.
+      כשקיים תקציב לחודש שקדם, הבלנד הוא 70% בסיס היסטורי + 30% תקציב קודם — עם רצפה מינימלית של הוצאות דו-חודשיות/רבעוניות/שנתיות שצפויות דווקא בחודש היעד.
     </div>
     ${advice}
     ${table(expProps, 'הוצאות', 'expense')}
@@ -268,16 +318,17 @@ function _updateBudgetProposal(idx, value) {
 
 function applyBudgetProposals() {
   if (!_budgetGenProposals) return
+  const target = _budgetGenTargetMonth || _bgCurrentMonthKey()
   let applied = 0
   for (const p of _budgetGenProposals) {
     if (!p.include) continue
-    if (!p.suggested || p.suggested <= 0) { deleteBudget(p.categoryId); continue }
-    setBudget(p.categoryId, p.suggested, false, p.type)
+    if (!p.suggested || p.suggested <= 0) { deleteBudget(p.categoryId, target); continue }
+    setBudget(p.categoryId, target, p.suggested, p.type)
     applied++
   }
   closeBudgetGenModal()
-  renderBudgetSettings()
-  alert(`${applied} תקציבים הוחלו.`)
+  if (typeof renderBudgetScreen === 'function') renderBudgetScreen()
+  alert(`${applied} תקציבים הוחלו על ${(typeof _budgetFormatMonth==='function')?_budgetFormatMonth(target):target}.`)
 }
 
 async function adviseBudgetWithGemini() {
@@ -295,12 +346,15 @@ async function adviseBudgetWithGemini() {
       mean: Math.round(p.mean),
       median: Math.round(p.median),
       trimmed: Math.round(p.trimmedMean),
+      prevBudget: p.prevBudget,
+      blended: Math.round(p.blended),
+      recurringFloor: Math.round(p.recurringFloor),
       suggested: p.suggested,
       outliersRemoved: p.wasTrimmed,
-      recurringNotes: p.recurringNotes.map(n => `${n.vendor}:${n.cadence}${n.expectedThisMonth?'(צפוי החודש)':''}`),
+      recurringNotes: p.recurringNotes.map(n => `${n.vendor}:${n.cadence}${n.expectedThisMonth?'(צפוי בחודש היעד)':''}`),
     }))
-    const prompt = `אתה יועץ פיננסי אישי דובר עברית. לפניך הצעות לתקציב חודשי לפי קטגוריה, שחושבו מקומית על סמך 3 חודשים אחרונים, עם החרגת ערכים חריגים (יותר מ-25% מעל ממוצע האחרים).
-ענה בעברית, קצר ותמציתי (עד 10 שורות): האם ההצעות נראות סבירות? אילו קטגוריות מומלץ לבחון שוב (למשל כי יש הוצאה דו-חודשית צפויה החודש, או חריגות שחוזרות)? אל תמציא מספרים — התייחס רק לנתון שלפניך.
+    const prompt = `אתה יועץ פיננסי אישי דובר עברית. לפניך הצעות לתקציב חודשי לפי קטגוריה, שחושבו מקומית מ-3 חודשים מלאים לפני חודש היעד, עם החרגת ערכים חריגים (מעל 25% מעל ממוצע האחרים), בלנד 70/30 עם תקציב החודש הקודם כשקיים, ורצפה של מחזוריים דו-חודשיים/רבעוניים/שנתיים שצפויים בחודש היעד.
+ענה בעברית, קצר ותמציתי (עד 10 שורות): האם ההצעות נראות סבירות? אילו קטגוריות מומלץ לבחון שוב (למשל כי יש הוצאה דו-חודשית צפויה, חריגות שחוזרות, או פער גדול בין ההיסטוריה לתקציב החודש הקודם)? אל תמציא מספרים — התייחס רק לנתון שלפניך.
 
 נתונים:
 ${JSON.stringify(snapshot)}`

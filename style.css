@@ -490,3 +490,70 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .bgen-note { display: inline-block; padding: .12rem .5rem; border-radius: 10px; background: var(--bg-elevated); border: 1px solid var(--border); font-size: .72rem; color: var(--text-secondary); }
 .bgen-note-hot { background: rgba(239, 68, 68, .12); border-color: rgba(239, 68, 68, .4); color: #ef4444; font-weight: 600; }
 .bgen-advice { margin-bottom: 1rem; padding: .85rem 1rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .6rem; font-size: .85rem; }
+.bgen-floor-tag { margin-top: .3rem; padding: .15rem .5rem; border-radius: 8px; background: rgba(59, 130, 246, .14); color: #60a5fa; font-size: .72rem; font-weight: 600; display: inline-block; }
+.modal-box-wide { max-width: min(1320px, 95vw); }
+
+/* ===== BUDGET SCREEN (v1.12) ===== */
+.budget-month-nav { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border); }
+.budget-month-label { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: .5rem; }
+.budget-month-tag { font-size: .7rem; font-weight: 600; padding: .15rem .55rem; border-radius: 10px; background: var(--accent-dim); color: var(--accent); }
+.budget-month-tag-future { background: rgba(168, 85, 247, .15); color: #c084fc; }
+.budget-month-tag-past { background: rgba(100, 116, 139, .18); color: #94a3b8; }
+
+.budget-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; margin-bottom: 1rem; }
+.budget-summary-card { padding: .85rem 1rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; }
+.budget-summary-card .budget-label { font-size: .78rem; color: var(--text-muted); margin-bottom: .25rem; }
+.budget-summary-card .budget-val { font-size: 1.05rem; font-weight: 700; }
+.budget-summary-card .budget-sub { font-size: .75rem; color: var(--text-muted); margin-top: .25rem; }
+
+.budget-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+
+.budget-screen-section { margin-top: 1rem; }
+.budget-screen-heading { font-size: .95rem; font-weight: 700; margin: 0 0 .5rem; color: var(--text-secondary); }
+.budget-screen-list-head { display: grid; grid-template-columns: 1.5fr 1fr 170px 1fr; gap: .75rem; align-items: center; padding: .35rem .75rem; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.budget-screen-list-head span:last-child { text-align: right; }
+.budget-screen-table { display: flex; flex-direction: column; gap: .4rem; }
+.budget-screen-row { display: grid; grid-template-columns: 1.5fr 1fr 170px 1fr; gap: .75rem; align-items: center; padding: .55rem .75rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; border-right-width: 3px; border-right-color: var(--border); }
+.budget-screen-row.budget-ok { border-right-color: var(--income); }
+.budget-screen-row.budget-warn { border-right-color: #eab308; }
+.budget-screen-row.budget-danger { border-right-color: #f97316; }
+.budget-screen-row.budget-over { border-right-color: var(--expense); }
+.budget-screen-cat { font-size: .9rem; font-weight: 500; }
+.budget-screen-actual { font-size: .88rem; font-weight: 600; }
+.budget-screen-budget { font-size: .88rem; font-weight: 600; color: var(--text-secondary); }
+.budget-screen-bar-track { height: 6px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
+.budget-screen-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .5s; }
+.budget-screen-row.budget-ok .budget-screen-bar-fill { background: var(--income); }
+.budget-screen-row.budget-warn .budget-screen-bar-fill { background: #eab308; }
+.budget-screen-row.budget-danger .budget-screen-bar-fill { background: #f97316; }
+.budget-screen-row.budget-over .budget-screen-bar-fill { background: var(--expense); }
+
+.budget-unforeseen-row { border-style: dashed; background: rgba(167, 139, 250, .06); }
+.budget-unforeseen-row .budget-screen-cat { color: #c4b5fd; }
+.budget-unforeseen-tag { display: inline-block; margin-inline-start: .35rem; padding: .1rem .4rem; border-radius: 8px; background: rgba(167, 139, 250, .2); color: #c4b5fd; font-size: .65rem; font-weight: 600; }
+
+/* Aggregated dashboard budget card */
+.budget-agg-grid { display: flex; flex-direction: column; gap: .65rem; }
+.budget-agg-row { padding: .65rem .85rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; border-right-width: 3px; }
+.budget-agg-row.budget-ok { border-right-color: var(--income); }
+.budget-agg-row.budget-warn { border-right-color: #eab308; }
+.budget-agg-row.budget-danger { border-right-color: #f97316; }
+.budget-agg-row.budget-over { border-right-color: var(--expense); }
+.budget-agg-head { display: flex; justify-content: space-between; font-size: .85rem; font-weight: 600; margin-bottom: .35rem; }
+.budget-agg-nums { color: var(--text-secondary); font-weight: 500; }
+.budget-agg-bar-track { height: 6px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
+.budget-agg-bar-fill { height: 100%; border-radius: 3px; transition: width .5s; background: var(--accent); }
+.budget-agg-row.budget-ok .budget-agg-bar-fill { background: var(--income); }
+.budget-agg-row.budget-warn .budget-agg-bar-fill { background: #eab308; }
+.budget-agg-row.budget-danger .budget-agg-bar-fill { background: #f97316; }
+.budget-agg-row.budget-over .budget-agg-bar-fill { background: var(--expense); }
+.budget-agg-foot { display: flex; justify-content: space-between; font-size: .72rem; color: var(--text-muted); margin-top: .3rem; }
+
+@media (max-width: 720px) {
+  .budget-month-nav { flex-wrap: wrap; }
+  .budget-summary-grid { grid-template-columns: 1fr; }
+  .budget-screen-list-head, .budget-screen-row { grid-template-columns: 1fr 1fr; gap: .5rem; }
+  .budget-screen-list-head span:nth-child(3), .budget-screen-list-head span:nth-child(4) { display: none; }
+  .budget-screen-row .budget-input-wrap { grid-column: 1 / -1; width: 100%; }
+  .budget-screen-row .budget-screen-bar-track { grid-column: 1 / -1; }
+}

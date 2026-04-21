@@ -1,4 +1,4 @@
-const APP_VERSION = '1.11.1'
+const APP_VERSION = '1.12.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -51,6 +51,7 @@ function navigate(screen) {
   if (screen === 'import') initImport()
   if (screen === 'analysis') renderAnalysis()
   if (screen === 'recurring') renderRecurring()
+  if (screen === 'budget') renderBudgetScreen()
   if (screen === 'settings') renderSettings()
 }
 
@@ -519,6 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
   migrateRelinkAutoTransfers_v3()
   migrateOrphanedTransfers_v4()
   migrateBudgetType_v1()
+  migrateBudgetMonthly_v2()
   navigate('dashboard')
 
   const dz = document.getElementById('dropZone')
