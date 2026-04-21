@@ -1,6 +1,17 @@
 let _txPage = 0
 const TX_PAGE_SIZE = 40
 
+// When viewing from a specific account, mirror-side transactions
+// (CC payments / transfers to savings) affect the account's balance
+// with the opposite sign. These helpers flip the perspective.
+function _txIsMirrorFor(t, accountId) {
+  return !!accountId && t.accountId !== accountId &&
+    (t.ccPaymentForAccountId === accountId || t.transferAccountId === accountId)
+}
+function _txViewAmount(t, accountId) {
+  return _txIsMirrorFor(t, accountId) ? -t.amount : t.amount
+}
+
 function renderTransactions() {
   _txPage = 0
   renderPeriodSelector('txPeriodSelector', () => { _txPage = 0; _drawTxTable() })
@@ -61,7 +72,12 @@ function _getFiltered() {
         if (type === 'uncategorized') { if (!isUncat(t)) return false }
         else if (t.type !== type) return false
       }
-      if (account && t.accountId !== account) return false
+      if (account) {
+        const touchesAcc = t.accountId === account
+          || t.ccPaymentForAccountId === account
+          || t.transferAccountId === account
+        if (!touchesAcc) return false
+      }
       if (category) {
         if (category === '__none__') { if (!isUncat(t)) return false }
         else if (t.categoryId !== category) return false
@@ -83,16 +99,18 @@ function _getFiltered() {
 
 function _drawTxTable() {
   const filtered = _getFiltered()
+  const accountId = document.getElementById('txAccountFilter')?.value || ''
+  const showRunningBalance = !!accountId
   // Raw sums of visible rows (not P&L scope) so the summary matches
   // the table — CC detail and transactions on non-liquid accounts must
   // be counted here even though they're excluded from the dashboard P&L.
+  // When viewing a single account, flip sign for mirror-side rows so a
+  // CC payment (bank -5,000) shows as +5,000 credit against the CC.
+  const viewAmt = t => _txViewAmount(t, accountId)
   const nonTransfer = filtered.filter(t => t.type !== 'transfer')
-  const totalInc = nonTransfer.filter(t => t.amount > 0).reduce((s,t) => s + t.amount, 0)
-  const totalExp = nonTransfer.filter(t => t.amount < 0).reduce((s,t) => s + Math.abs(t.amount), 0)
+  const totalInc = nonTransfer.filter(t => viewAmt(t) > 0).reduce((s,t) => s + viewAmt(t), 0)
+  const totalExp = nonTransfer.filter(t => viewAmt(t) < 0).reduce((s,t) => s + Math.abs(viewAmt(t)), 0)
   const net = totalInc - totalExp
-
-  const accountId = document.getElementById('txAccountFilter')?.value || ''
-  const showRunningBalance = !!accountId
   let runningBalanceInfo = ''
   if (showRunningBalance) {
     const acc = getAccounts().find(a => a.id === accountId)
@@ -128,12 +146,17 @@ function _drawTxTable() {
   // - get balance up to & including each row's date (but only for transactions on/before that row)
   let rowBalances = {}
   if (showRunningBalance) {
-    const accTxs = getTransactions().filter(t => t.accountId === accountId)
-      .sort((a,b) => (a.date||'').localeCompare(b.date||''))
+    // Include mirror-side txs (CC payments from bank / deposits to savings)
+    // so the running balance reconciles with getAccountBalance.
+    const accTxs = getTransactions().filter(t =>
+      t.accountId === accountId
+      || t.ccPaymentForAccountId === accountId
+      || t.transferAccountId === accountId
+    ).sort((a,b) => (a.date||'').localeCompare(b.date||''))
     const acc = getAccounts().find(a => a.id === accountId)
     let run = acc?.openingBalance || 0
     for (const t of accTxs) {
-      run += t.amount
+      run += _txViewAmount(t, accountId)
       rowBalances[t.id] = run
     }
   }
@@ -153,15 +176,23 @@ function _drawTxTable() {
           const catBadge = cat
             ? `<span class="cat-badge cat-badge-clickable" onclick="filterTxByCategory('${cat.id}')" title="סנן לפי קטגוריה זו" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>`
             : `<span class="cat-badge-clickable" onclick="filterTxByCategory('__none__')" title="סנן לפי לא־מסווג" style="color:var(--text-muted);font-size:.8rem">לא מסווג</span>`
+          const isMirror = _txIsMirrorFor(tx, accountId)
+          const dispAmt = isMirror ? -tx.amount : tx.amount
           const isNonCounted = tx.type === 'transfer' || tx.type === 'refund'
-          const amountCls = isNonCounted ? 'amount-muted' : (tx.amount>0?'amount-inc':'amount-exp')
+          const amountCls = isNonCounted ? 'amount-muted' : (dispAmt>0?'amount-inc':'amount-exp')
           const balCell = showRunningBalance ? `<td style="font-weight:500">${formatCurrency(rowBalances[tx.id] ?? 0)}</td>` : ''
-          return `<tr ${isNonCounted?'class="tx-noncounted"':''}>
+          const mirrorLabel = isMirror
+            ? (tx.ccPaymentForAccountId === accountId ? 'תשלום לכרטיס' : 'הפקדה')
+            : null
+          const typeBadge = mirrorLabel
+            ? `<span class="type-badge type-transfer" title="עסקה מחשבון אחר שמשפיעה על היתרה">${mirrorLabel}</span>`
+            : `<span class="type-badge ${TYPE_CLS[tx.type]||'type-expense'}">${TYPE_LABEL[tx.type]||tx.type}</span>`
+          return `<tr ${isNonCounted||isMirror?'class="tx-noncounted"':''}>
             <td>${formatDate(tx.date)}</td>
             <td><div style="font-weight:500">${resolveVendor(tx.vendor)||'—'}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
             <td>${catBadge}</td>
-            <td class="${amountCls}">${tx.amount>0?'+':''}${formatCurrency(tx.amount)}</td>
-            <td><span class="type-badge ${TYPE_CLS[tx.type]||'type-expense'}">${TYPE_LABEL[tx.type]||tx.type}</span></td>
+            <td class="${amountCls}">${dispAmt>0?'+':''}${formatCurrency(dispAmt)}</td>
+            <td>${typeBadge}</td>
             ${balCell}
             <td style="color:var(--text-muted);font-size:.8rem">${tx.notes||''}</td>
             <td><button class="edit-btn" onclick="openEditModal('${tx.id}')">✏️</button></td>
