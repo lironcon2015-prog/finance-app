@@ -83,8 +83,12 @@ function _getFiltered() {
 
 function _drawTxTable() {
   const filtered = _getFiltered()
-  const totalInc = sumIncome(filtered)
-  const totalExp = sumExpenses(filtered)
+  // Raw sums of visible rows (not P&L scope) so the summary matches
+  // the table — CC detail and transactions on non-liquid accounts must
+  // be counted here even though they're excluded from the dashboard P&L.
+  const nonTransfer = filtered.filter(t => t.type !== 'transfer')
+  const totalInc = nonTransfer.filter(t => t.amount > 0).reduce((s,t) => s + t.amount, 0)
+  const totalExp = nonTransfer.filter(t => t.amount < 0).reduce((s,t) => s + Math.abs(t.amount), 0)
   const net = totalInc - totalExp
 
   const accountId = document.getElementById('txAccountFilter')?.value || ''
