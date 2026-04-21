@@ -96,11 +96,21 @@ function _drawTxTable() {
     runningBalanceInfo = `<span style="color:${bal>=0?'var(--income)':'var(--expense)'};font-weight:600">יתרה: ${formatCurrency(bal)}</span>`
   }
 
+  const categoryId = document.getElementById('txCategoryFilter')?.value || ''
+  let categoryBalanceInfo = ''
+  if (categoryId && categoryId !== '__none__') {
+    const cat = getCategoryById(categoryId)
+    const catBal = net
+    const label = cat ? `${cat.icon||''} ${cat.name}` : 'קטגוריה'
+    categoryBalanceInfo = `<span style="color:${catBal>=0?'var(--income)':'var(--expense)'};font-weight:600">יתרת ${label}: ${formatCurrency(catBal)}</span>`
+  }
+
   document.getElementById('txSummary').innerHTML = `
     <span>${filtered.length} עסקאות</span>
     <span class="income">+${formatCurrency(totalInc)}</span>
     <span class="expense">-${formatCurrency(totalExp)}</span>
     <span class="${net>=0?'net-pos':'net-neg'}">נטו: ${formatCurrency(net)}</span>
+    ${categoryBalanceInfo}
     ${runningBalanceInfo}`
 
   const page = filtered.slice(_txPage * TX_PAGE_SIZE, (_txPage+1) * TX_PAGE_SIZE)
