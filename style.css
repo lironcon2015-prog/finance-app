@@ -491,7 +491,13 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .bgen-note-hot { background: rgba(239, 68, 68, .12); border-color: rgba(239, 68, 68, .4); color: #ef4444; font-weight: 600; }
 .bgen-advice { margin-bottom: 1rem; padding: .85rem 1rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .6rem; font-size: .85rem; }
 .bgen-floor-tag { margin-top: .3rem; padding: .15rem .5rem; border-radius: 8px; background: rgba(59, 130, 246, .14); color: #60a5fa; font-size: .72rem; font-weight: 600; display: inline-block; }
-.modal-box-wide { max-width: min(1320px, 95vw); }
+.modal-box-wide { width: min(1400px, 97vw); max-width: min(1400px, 97vw); }
+.bgen-table { width: 100%; table-layout: auto; }
+.bgen-table th, .bgen-table td { white-space: normal; word-break: break-word; }
+.bgen-table td:nth-child(2) { min-width: 160px; }
+.bgen-table td:nth-child(3) { min-width: 220px; }
+.bgen-table td:nth-child(4) { min-width: 200px; }
+.bgen-table td:nth-child(5) { min-width: 140px; }
 
 /* ===== BUDGET SCREEN (v1.12) ===== */
 .budget-month-nav { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border); }
