@@ -23,6 +23,16 @@ Deliver accurate code using the minimum tokens possible. Silence is preferred ov
 4. Saying "I will now…" or "I have updated…".
 5. Planning or using `<thinking>` for trivial tasks.
 
+## Quick Reference
+
+| Situation      | Do                                   | Don't                         |
+|----------------|--------------------------------------|-------------------------------|
+| Bug fix        | Show only the fixed function         | Reprint the whole file        |
+| New feature    | Show new method + import if needed   | Reprint the class             |
+| Refactor       | Before → after for changed blocks    | Narrate every change          |
+| Code question  | Direct answer + minimal example      | Long preamble                 |
+| Find code      | Scoped `grep -n "specific"` + range  | Broad grep or full file read  |
+
 ---
 
 # הנחיות לפרויקט finance-app
