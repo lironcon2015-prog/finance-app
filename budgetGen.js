@@ -128,7 +128,7 @@ function generateBudgetProposals(targetMonth) {
     const catTxs = periodTx.filter(t => t.categoryId === cat.id)
     const perMonth = months.map(m =>
       catTxs
-        .filter(t => t.date.startsWith(m))
+        .filter(t => getTxEffectiveMonth(t) === m)
         .reduce((s, t) => s + _bgCategoryAmount(t, type, savingsInvestIds), 0)
     )
     const { trimmed, outliers, wasTrimmed } = _bgTrimmedMean25(perMonth)

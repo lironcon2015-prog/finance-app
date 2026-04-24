@@ -328,6 +328,11 @@
           <textarea id="accPatterns" rows="3" placeholder='לדוגמה:&#10;ויזה כאל&#10;הפקדה לחיסכון&#10;העברה לבית השקעות'></textarea>
           <div style="font-size:.75rem;color:var(--text-muted);margin-top:.3rem">ביטויים אלה ישמשו לזיהוי העברות אל החשבון (אשראי / חיסכון / ני"ע) בדפי הבנק וסימון אוטומטי כ"העברה"</div>
         </div>
+        <div id="accBillingDayRow" style="display:none;margin-top:1rem">
+          <label class="form-label">יום חיוב בחודש (1–31)</label>
+          <input id="accBillingDay" type="number" min="1" max="31" value="10" style="max-width:100px">
+          <div style="font-size:.75rem;color:var(--text-muted);margin-top:.3rem">עסקאות ביום זה ואילך יסווגו לחודש החיוב הבא בתקציב ובניתוח</div>
+        </div>
         <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem">
           <button class="btn-ghost" onclick="toggleAccForm()">ביטול</button>
           <button class="btn-primary" onclick="saveAccount()">שמור</button>
@@ -624,20 +629,20 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.12.4';</script>
-<script src="app.js?v=1.12.4"></script>
-<script src="core.js?v=1.12.4"></script>
-<script src="templates.js?v=1.12.4"></script>
-<script src="autocat.js?v=1.12.4"></script>
-<script src="budget.js?v=1.12.4"></script>
-<script src="budgetGen.js?v=1.12.4"></script>
-<script src="recurring.js?v=1.12.4"></script>
-<script src="dashboard.js?v=1.12.4"></script>
-<script src="transactions.js?v=1.12.4"></script>
-<script src="wizard.js?v=1.12.4"></script>
-<script src="import.js?v=1.12.4"></script>
-<script src="analysis.js?v=1.12.4"></script>
-<script src="settings.js?v=1.12.4"></script>
+<script>const _v = '1.12.5';</script>
+<script src="app.js?v=1.12.5"></script>
+<script src="core.js?v=1.12.5"></script>
+<script src="templates.js?v=1.12.5"></script>
+<script src="autocat.js?v=1.12.5"></script>
+<script src="budget.js?v=1.12.5"></script>
+<script src="budgetGen.js?v=1.12.5"></script>
+<script src="recurring.js?v=1.12.5"></script>
+<script src="dashboard.js?v=1.12.5"></script>
+<script src="transactions.js?v=1.12.5"></script>
+<script src="wizard.js?v=1.12.5"></script>
+<script src="import.js?v=1.12.5"></script>
+<script src="analysis.js?v=1.12.5"></script>
+<script src="settings.js?v=1.12.5"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

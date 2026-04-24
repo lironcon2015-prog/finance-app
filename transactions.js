@@ -66,7 +66,7 @@ function _getFiltered() {
   // categoryId points at a category that was deleted.
   const validCatIds = new Set(getCategories().map(c => c.id))
   const isUncat = t => !t.categoryId || !validCatIds.has(t.categoryId)
-  return filterByPeriod(getTransactions(), period)
+  return filterByEffectivePeriod(getTransactions(), period)
     .filter(t => {
       if (type !== 'all') {
         if (type === 'uncategorized') { if (!isUncat(t)) return false }
@@ -164,13 +164,13 @@ function _drawTxTable() {
   document.getElementById('txTable').innerHTML = `
     <table class="data-table">
       <thead><tr>
-        <th>תאריך</th><th>ספק</th><th>קטגוריה</th>
+        <th>תאריך</th><th>חודש חיוב</th><th>ספק</th><th>קטגוריה</th>
         <th>סכום</th><th>סוג</th>
         ${showRunningBalance ? '<th>יתרה</th>' : ''}
         <th>הערות</th><th></th>
       </tr></thead>
       <tbody>
-      ${page.length === 0 ? `<tr><td colspan="${showRunningBalance?8:7}" style="text-align:center;padding:3rem;color:var(--text-muted)">אין עסקאות</td></tr>` :
+      ${page.length === 0 ? `<tr><td colspan="${showRunningBalance?9:8}" style="text-align:center;padding:3rem;color:var(--text-muted)">אין עסקאות</td></tr>` :
         page.map(tx => {
           const cat = getCategoryById(tx.categoryId)
           const catBadge = cat
@@ -187,8 +187,13 @@ function _drawTxTable() {
           const typeBadge = mirrorLabel
             ? `<span class="type-badge type-transfer" title="עסקה מחשבון אחר שמשפיעה על היתרה">${mirrorLabel}</span>`
             : `<span class="type-badge ${TYPE_CLS[tx.type]||'type-expense'}">${TYPE_LABEL[tx.type]||tx.type}</span>`
+          const effMonth = getTxEffectiveMonth(tx)
+          const effMonthDisplay = effMonth ? effMonth.slice(5) + '/' + effMonth.slice(0,4) : '—'
+          const effMonthMismatch = effMonth && tx.date && effMonth !== tx.date.slice(0,7)
+          const effCell = `<td style="font-size:.8rem;color:${effMonthMismatch?'var(--accent)':'var(--text-muted)'}">${effMonthDisplay}</td>`
           return `<tr ${isNonCounted||isMirror?'class="tx-noncounted"':''}>
             <td>${formatDate(tx.date)}</td>
+            ${effCell}
             <td><div style="font-weight:500">${resolveVendor(tx.vendor)||'—'}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
             <td>${catBadge}</td>
             <td class="${amountCls}">${dispAmt>0?'+':''}${formatCurrency(dispAmt)}</td>

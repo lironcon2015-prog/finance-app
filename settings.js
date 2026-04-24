@@ -213,6 +213,7 @@ const PATTERN_BEARING_TYPES = ['credit_card', 'savings', 'investment']
 function _onAccTypeChange() {
   const t = document.getElementById('accType').value
   document.getElementById('accPatternsRow').style.display = PATTERN_BEARING_TYPES.includes(t) ? 'block' : 'none'
+  document.getElementById('accBillingDayRow').style.display = t === 'credit_card' ? 'block' : 'none'
 }
 
 function saveAccount() {
@@ -224,6 +225,9 @@ function saveAccount() {
   const patterns = PATTERN_BEARING_TYPES.includes(type)
     ? patternsRaw.split('\n').map(s => s.trim()).filter(Boolean)
     : undefined
+  const billingDay = type === 'credit_card'
+    ? (parseInt(document.getElementById('accBillingDay').value, 10) || 10)
+    : undefined
   accounts.push({
     id:             genId(),
     name,
@@ -232,14 +236,17 @@ function saveAccount() {
     openingBalance: parseFloat(document.getElementById('accBalance').value) || 0,
     currency:       'ILS',
     paymentVendorPatterns: patterns,
+    billingDay,
     createdAt:      Date.now(),
   })
   DB.set('finAccounts', accounts)
   invalidatePLCache()
+  invalidateAccountCache()
   document.getElementById('accName').value = ''
   document.getElementById('accInstitution').value = ''
   document.getElementById('accBalance').value = '0'
   if (document.getElementById('accPatterns')) document.getElementById('accPatterns').value = ''
+  document.getElementById('accBillingDay').value = '10'
   toggleAccForm()
   renderSettings()
 }
@@ -253,6 +260,21 @@ function editAccountPatterns(id) {
   if (v === null) return
   acc.paymentVendorPatterns = v.split('\n').map(s => s.trim()).filter(Boolean)
   DB.set('finAccounts', accs)
+  renderSettings()
+}
+
+function editAccountBillingDay(id) {
+  const accs = getAccounts()
+  const acc = accs.find(a => a.id === id)
+  if (!acc) return
+  const current = acc.billingDay || 10
+  const v = prompt(`יום חיוב בחודש עבור "${acc.name}" (1–31):`, current)
+  if (v === null) return
+  const day = parseInt(v, 10)
+  if (isNaN(day) || day < 1 || day > 31) { alert('יום לא חוקי. הזן מספר בין 1 ל-31.'); return }
+  acc.billingDay = day
+  DB.set('finAccounts', accs)
+  invalidateAccountCache()
   renderSettings()
 }
 
@@ -278,6 +300,7 @@ function deleteAccount(id) {
   DB.set('finTransactions', remainingTx)
   DB.set('finAccounts', getAccounts().filter(a => a.id !== id))
   invalidatePLCache()
+  invalidateAccountCache()
   renderSettings()
 }
 
@@ -298,6 +321,9 @@ function renderAccountList() {
         const patternsBtn = PATTERN_BEARING_TYPES.includes(a.type)
           ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .7rem" onclick="editAccountPatterns('${a.id}')">דפוסי זיהוי (${(a.paymentVendorPatterns||[]).length})</button>`
           : ''
+        const billingDayBtn = a.type === 'credit_card'
+          ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .7rem" onclick="editAccountBillingDay('${a.id}')">⚙️ יום חיוב: ${a.billingDay || 10}</button>`
+          : ''
         return `
         <div class="list-item">
           <div style="flex:1">
@@ -306,6 +332,7 @@ function renderAccountList() {
           </div>
           <div style="display:flex;gap:.4rem;align-items:center">
             ${patternsBtn}
+            ${billingDayBtn}
             <button class="list-item-del" onclick="deleteAccount('${a.id}')">🗑️</button>
           </div>
         </div>`

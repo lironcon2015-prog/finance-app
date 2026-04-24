@@ -25,6 +25,18 @@ function _getPLAccountIds() {
 }
 function invalidatePLCache() { _plAcctIdsCache = null }
 
+let _accInfoCache = null
+let _accInfoCacheTs = 0
+function _getAccountInfo(accountId) {
+  const now = Date.now()
+  if (!_accInfoCache || now - _accInfoCacheTs > 500) {
+    _accInfoCache = new Map(getAccounts().map(a => [a.id, { type: a.type, billingDay: a.billingDay }]))
+    _accInfoCacheTs = now
+  }
+  return _accInfoCache.get(accountId) || null
+}
+function invalidateAccountCache() { _accInfoCache = null }
+
 function isPLTransaction(t) { return _getPLAccountIds().has(t.accountId) }
 
 function isCountedIncome(t)  { return isPLTransaction(t) && t.amount > 0 && t.type !== 'transfer' && t.type !== 'refund' }
@@ -154,6 +166,29 @@ function setActivePeriod(p) { localStorage.setItem('finActivePeriod', JSON.strin
 
 function filterByPeriod(txs, p) {
   return txs.filter(t => t.date && t.date >= p.start && t.date <= p.end)
+}
+
+// Returns the effective billing month (YYYY-MM) for a transaction.
+// For credit_card accounts: if day >= billingDay, rolls over to next month.
+// For all other account types: returns the calendar month of tx.date.
+function getTxEffectiveMonth(tx) {
+  if (!tx.date) return ''
+  const info = _getAccountInfo(tx.accountId)
+  const [y, m, d] = tx.date.split('-').map(Number)
+  if (!info || info.type !== 'credit_card') return `${y}-${String(m).padStart(2,'0')}`
+  const billingDay = info.billingDay || 10
+  if (d < billingDay) return `${y}-${String(m).padStart(2,'0')}`
+  const nm = m === 12 ? 1 : m + 1
+  const ny = m === 12 ? y + 1 : y
+  return `${ny}-${String(nm).padStart(2,'0')}`
+}
+
+// Like filterByPeriod but uses effective billing month instead of raw date.
+// Matches transactions whose getTxEffectiveMonth falls within the months
+// covered by the period. Used for dashboard/analysis/transactions views.
+function filterByEffectivePeriod(txs, p) {
+  const months = new Set(monthsInPeriod(p))
+  return txs.filter(t => t.date && months.has(getTxEffectiveMonth(t)))
 }
 
 function monthsInPeriod(p) {

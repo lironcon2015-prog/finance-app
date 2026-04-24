@@ -12,7 +12,7 @@ function _drawAnalysis() {
   document.getElementById('analysisPeriodLabel').textContent = period.label || `${period.start} → ${period.end}`
 
   const all = getTransactions()
-  const periodTx = filterByPeriod(all, period)
+  const periodTx = filterByEffectivePeriod(all, period)
 
   const income         = sumIncome(periodTx)
   const expenses       = sumExpenses(periodTx)
@@ -234,8 +234,8 @@ function _renderTrendChart(all, period) {
       months.push(_ym(d))
     }
   }
-  const incomes = months.map(mo => sumIncome(all.filter(t => t.date?.startsWith(mo))))
-  const exps    = months.map(mo => sumExpenses(all.filter(t => t.date?.startsWith(mo))))
+  const incomes = months.map(mo => sumIncome(all.filter(t => getTxEffectiveMonth(t) === mo)))
+  const exps    = months.map(mo => sumExpenses(all.filter(t => getTxEffectiveMonth(t) === mo)))
   const nets    = incomes.map((v,i) => v - exps[i])
   const labels  = months.map(mo => mo.slice(5) + '/' + mo.slice(2,4))
 
@@ -263,8 +263,8 @@ function _renderTrendChart(all, period) {
 
 function _renderYoY(all, period) {
   const prevPeriod = shiftPeriodByYear(period, 1)
-  const curTx = filterByPeriod(all, period)
-  const prvTx = filterByPeriod(all, prevPeriod)
+  const curTx = filterByEffectivePeriod(all, period)
+  const prvTx = filterByEffectivePeriod(all, prevPeriod)
 
   const curInc = sumIncome(curTx),  prvInc = sumIncome(prvTx)
   const curExp = sumExpenses(curTx), prvExp = sumExpenses(prvTx)
@@ -321,7 +321,7 @@ function _renderYoY(all, period) {
 }
 
 function _renderCashFlowStatement(all, period) {
-  const periodTx = filterByPeriod(all, period)
+  const periodTx = filterByEffectivePeriod(all, period)
   const dayBefore = _iso(new Date(new Date(period.start).getTime() - 86400000))
   // Use checking+cash balance only (reliable, mirrors imported bank data).
   const startBal = getCheckingCashBalance(dayBefore)
@@ -627,7 +627,7 @@ async function sendChat() {
 
   const period = getActivePeriod()
   const all = getTransactions()
-  const periodTx = filterByPeriod(all, period).slice(0, 100)
+  const periodTx = filterByEffectivePeriod(all, period).slice(0, 100)
   const income = sumIncome(periodTx)
   const expenses = sumExpenses(periodTx)
   const checkingBalance = getCheckingCashBalance()

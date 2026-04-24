@@ -80,7 +80,7 @@ function _budgetCategoryProxy(catId) {
 // actual=0 (they're plug numbers, not tracking real tx).
 function computeBudgetStatus(monthKey) {
   const budgets = getBudgetsForMonth(monthKey)
-  const txs = getTransactions().filter(t => t.date?.startsWith(monthKey))
+  const txs = getTransactions().filter(t => getTxEffectiveMonth(t) === monthKey)
   const savingsInvestIds = analysisExpenseSavingsInvestIds()
   return budgets.map(b => {
     const cat = _budgetCategoryProxy(b.categoryId)

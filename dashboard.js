@@ -7,7 +7,7 @@ function renderDashboard() {
   document.getElementById('dashPeriodLabel').textContent = period.label || `${period.start} → ${period.end}`
 
   const all = getTransactions()
-  const periodTx = filterByPeriod(all, period)
+  const periodTx = filterByEffectivePeriod(all, period)
 
   const income         = sumIncome(periodTx)
   const expenses       = sumExpenses(periodTx)
@@ -141,8 +141,8 @@ function _renderMonthlyChart(all, period) {
       })()
     : months
 
-  const incomes = displayMonths.map(mo => sumIncome(all.filter(t => t.date?.startsWith(mo))))
-  const exps    = displayMonths.map(mo => sumExpenses(all.filter(t => t.date?.startsWith(mo))))
+  const incomes = displayMonths.map(mo => sumIncome(all.filter(t => getTxEffectiveMonth(t) === mo)))
+  const exps    = displayMonths.map(mo => sumExpenses(all.filter(t => getTxEffectiveMonth(t) === mo)))
   const nets    = incomes.map((v,i) => v - exps[i])
   const labels  = displayMonths.map(mo => mo.slice(5) + '/' + mo.slice(2,4))
 

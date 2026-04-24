@@ -246,14 +246,21 @@ function showImportReview() {
   const cats = getCategories()
   const typeLabel = tp => ({ income:'הכנסה', expense:'הוצאה', transfer:'העברה', refund:'החזר' }[tp] || tp)
   const typeCls = tp => ({ income:'type-income', expense:'type-expense', transfer:'type-transfer', refund:'type-refund' }[tp] || 'type-expense')
+  const accs = getAccounts()
   const rows = _parsedTx.map((t, i) => {
     const cat = cats.find(c => c.id === t._categoryId)
     const ccNote = t._matchAccountName ? `<div style="font-size:.72rem;color:var(--accent);margin-top:.15rem">→ ${t._matchAccountName}</div>` : ''
+    const acc = accs.find(a => a.id === t._accountId)
+    const txDay = t.date ? Number(t.date.split('-')[2]) : null
+    const suspicious = acc && acc.type === 'credit_card' && txDay !== null && txDay === (acc.billingDay || 10)
+    const billingWarn = suspicious
+      ? `<span title="שים לב: תאריך העסקה זהה ליום החיוב. ודא שזהו אכן תאריך הרכישה ולא תאריך החיוב המרוכז" style="cursor:help"> ⚠️</span>`
+      : ''
     return `
     <tr style="opacity:${t._duplicate?'.4':'1'}">
       <td><input type="checkbox" ${t._keep&&!t._duplicate?'checked':''} ${t._duplicate?'disabled':''}
         onchange="_parsedTx[${i}]._keep=this.checked;_updateSaveBtn()" style="width:auto;cursor:pointer"></td>
-      <td>${formatDate(t.date)}</td>
+      <td>${formatDate(t.date)}${billingWarn}</td>
       <td style="font-weight:500">${t.vendor}${ccNote}</td>
       <td style="font-weight:700;color:${t.amount>0?'var(--income)':'var(--expense)'}">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
       <td>${cat ? `<span style="font-size:.8rem">${cat.icon} ${cat.name}</span>` : '<span style="color:var(--text-muted);font-size:.8rem">—</span>'}</td>
