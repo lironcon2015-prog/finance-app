@@ -343,41 +343,91 @@ async function adviseBudgetWithGemini() {
   const btn = document.getElementById('bgenAdviceBtn')
   if (btn) { btn.disabled = true; btn.textContent = 'טוען…' }
   try {
-    const snapshot = _budgetGenProposals.map(p => ({
-      id: p.categoryId,
-      category: p.category.name,
-      type: p.type,
-      months: p.months,
-      perMonth: p.perMonth.map(v => Math.round(v)),
-      mean: Math.round(p.mean),
-      median: Math.round(p.median),
-      trimmed: Math.round(p.trimmedMean),
-      prevBudget: p.prevBudget,
-      blended: Math.round(p.blended),
-      recurringFloor: Math.round(p.recurringFloor),
-      suggested: p.suggested,
-      outliersRemoved: p.wasTrimmed,
-      recurringNotes: p.recurringNotes.map(n => `${n.vendor}:${n.cadence}${n.expectedThisMonth?'(צפוי בחודש היעד)':''}`),
-    }))
-    const prompt = `אתה כלכלן ויועץ פיננסי מקצועי, מומחה בבניית תקציב למשק בית בישראל. אתה משתמש בסטנדרטים מקובלים של ניהול תקציב ביתי (יחסים סבירים בין קטגוריות, רזרבה לחירום, יחס חיסכון בריא, זיהוי הוצאות שמרגישות "טבעיות" אבל יכולות להישחק).
+    // Household-level totals derived from current proposals — these give the
+    // AI the big-picture context an economist needs (ratios, savings rate)
+    // rather than just per-category data.
+    const incProps = _budgetGenProposals.filter(p => p.type === 'income')
+    const expProps = _budgetGenProposals.filter(p => p.type === 'expense')
+    const totalSuggestedIncome  = incProps.reduce((s, p) => s + (p.suggested || 0), 0)
+    const totalSuggestedExpense = expProps.reduce((s, p) => s + (p.suggested || 0), 0)
+    const totalSuggestedNet     = totalSuggestedIncome - totalSuggestedExpense
+    const totalHistIncome       = incProps.reduce((s, p) => s + (p.mean || 0), 0)
+    const totalHistExpense      = expProps.reduce((s, p) => s + (p.mean || 0), 0)
+    const totalHistNet          = totalHistIncome - totalHistExpense
+    const pct = (n, d) => d > 0 ? Math.round((n / d) * 1000) / 10 : 0
+    const householdSummary = {
+      totalSuggestedIncome:  Math.round(totalSuggestedIncome),
+      totalSuggestedExpense: Math.round(totalSuggestedExpense),
+      totalSuggestedNet:     Math.round(totalSuggestedNet),
+      suggestedSavingsRatePct: pct(totalSuggestedNet, totalSuggestedIncome),
+      totalHistIncome:  Math.round(totalHistIncome),
+      totalHistExpense: Math.round(totalHistExpense),
+      totalHistNet:     Math.round(totalHistNet),
+      histSavingsRatePct: pct(totalHistNet, totalHistIncome),
+    }
+    const snapshot = _budgetGenProposals.map(p => {
+      const denom = p.type === 'income' ? totalSuggestedIncome : totalSuggestedExpense
+      const weight = pct(p.suggested || 0, denom)
+      return {
+        id: p.categoryId,
+        category: p.category.name,
+        type: p.type,
+        months: p.months,
+        perMonth: p.perMonth.map(v => Math.round(v)),
+        mean: Math.round(p.mean),
+        median: Math.round(p.median),
+        trimmed: Math.round(p.trimmedMean),
+        prevBudget: p.prevBudget,
+        blended: Math.round(p.blended),
+        recurringFloor: Math.round(p.recurringFloor),
+        suggested: p.suggested,
+        weightOfTotalPct: weight,
+        weightOfIncomePct: pct(p.suggested || 0, totalSuggestedIncome),
+        outliersRemoved: p.wasTrimmed,
+        recurringNotes: p.recurringNotes.map(n => `${n.vendor}:${n.cadence}${n.expectedThisMonth?'(צפוי בחודש היעד)':''}`),
+      }
+    })
+    const prompt = `אתה כלכלן ויועץ פיננסי מקצועי, מומחה בבניית תקציב למשק בית בישראל. אתה מנתח את הנתונים בכלים של כלכלן: יחסים מקובלים בין קטגוריות, שיעור חיסכון, יחס הוצאות קבועות מול משתנות, סיכון לגירעון, ואיתור הוצאות שמרגישות "טבעיות" אבל גודלות בשקט.
 
 ההצעות לפניך חושבו מקומית מ-3 חודשים מלאים לפני חודש היעד: בסיס היסטורי = ממוצע מקוצץ (חריגות מעל 100% מעל ממוצע האחרים מוחרגות), בלנד 70/30 עם תקציב החודש הקודם כשקיים, ורצפה של מחזוריים דו-חודשיים/רבעוניים/שנתיים שצפויים בחודש היעד.
 
-המשימה שלך: לכל קטגוריה תן הערה מקצועית קצרה (משפט אחד עד שניים, מקסימום 22 מילים, בעברית, גוף ראשון של יועץ). ההערה חייבת להיות ספציפית לנתוני הקטגוריה — לא תבנית כללית. שקול:
-- האם רמת ההוצאה סבירה למשק בית ישראלי טיפוסי בקטגוריה הזו
-- מגמה (עולה/יורד/יציב), תנודתיות, וחריגות שחוזרות
-- היחס לסך התקציב (אם הקטגוריה דומיננטית מדי או נמוכה משמעותית)
-- אם יש הוצאה מחזורית צפויה — התייחס אליה
+תקציר משק הבית (לפי ההצעה והממוצע ההיסטורי):
+${JSON.stringify(householdSummary)}
+
+קווים מנחים למשק בית ישראלי טיפוסי (התייחס כבנצ'מרק, לא חוקים מוחלטים — הקשר משפחתי משפיע):
+- שיעור חיסכון בריא: 15-20% מההכנסה. מתחת ל-10% מהווה סיכון לטווח ארוך. מעל 25% מצוין.
+- דיור (שכ"ד/משכנתא + ארנונה + ועד בית): 25-35% מההכנסה. מעל 40% נטל גבוה.
+- אוכל (סופרים + מסעדות יחד): 12-20% מההכנסה.
+- תחבורה (דלק + תחבורה ציבורית + ביטוח רכב + טיפולים): 10-15% מההכנסה.
+- שירותים שוטפים (חשמל / מים / גז / תקשורת): 5-8% מההכנסה.
+- ביטוחים (חיים / בריאות / רכוש): 3-6% מההכנסה.
+- בידור ופנאי: 5-10% מההכנסה.
+- בריאות (לא דרך ביטוח): 2-5% מההכנסה.
+- חינוך / חוגים / קייטנות: 5-15% מההכנסה (תלוי במספר ילדים וגיל).
+
+לכל קטגוריה ניתן \`weightOfTotalPct\` (אחוז מסך ההכנסות או מסך ההוצאות, בהתאמה) ו-\`weightOfIncomePct\` (אחוז מסך ההכנסה — שימושי גם להוצאות לבחינה מול הבנצ'מרק).
+
+המשימה שלך: לכל קטגוריה תן הערה מקצועית קצרה (משפט אחד עד שניים, מקסימום 25 מילים, בעברית, גוף ראשון של יועץ). שקול:
+- האם המשקל של הקטגוריה (weightOfIncomePct) סביר מול הבנצ'מרק
+- מגמה (עולה / יורד / יציב), תנודתיות, וחריגות שחוזרות
+- האם יש הוצאה מחזורית צפויה
 - פערים בין ההיסטוריה לתקציב הקודם
+- ההשפעה על שיעור החיסכון של משק הבית
 
-ההערה צריכה להיות פרקטית: ציין אם ההצעה נראית גבוהה/נמוכה/סבירה, ואם רלוונטי הצע פעולה ("שקול להעלות ל...", "כדאי לבחון פוטנציאל חיסכון", "סטטיסטיקה יציבה — ההצעה מאוזנת").
+ההערה צריכה להיות פרקטית. דוגמאות לסגנון:
+- "אוכל תופס 24% מההכנסה — מעט מעל הטווח המקובל (12-20%); שווה לבחון פוטנציאל חיסכון של 500-800 ₪"
+- "ביטוחים 7% מההכנסה — קצה גבול עליון של המקובל; ודא שאין כפל כיסויים"
+- "מגמה עולה ב-3 החודשים, ההצעה תופסת זאת; עקוב חודש הבא לוודא שזה לא טרנד מתמשך"
+- "סטטיסטיקה יציבה והמשקל מאוזן (4% מההכנסה) — ההצעה ריאלית"
 
-**חובה לתת הערה לכל קטגוריה ברשימה — גם אם המצב תקין, כתוב את התובנה המקצועית.**
+**חובה לתת הערה לכל קטגוריה ברשימה — גם אם תקין, כתוב את התובנה המקצועית.**
+
+ה-summary שלך: משפט אחד-שניים שמסכם את בריאות התקציב הכוללת — האם משק הבית מאוזן, מה שיעור החיסכון מול המקובל, האם יש דגלים אדומים מצרפיים.
 
 החזר JSON תקני בלבד במבנה:
-{ "perCategory": [ { "id": "<id מהנתונים>", "advice": "<טקסט עברי קצר>" }, ... ], "summary": "<משפט סיכום כללי על איכות התקציב הכולל>" }
+{ "perCategory": [ { "id": "<id מהנתונים>", "advice": "<טקסט עברי קצר>" }, ... ], "summary": "<משפט סיכום על בריאות התקציב>" }
 
-נתונים:
+נתוני קטגוריות:
 ${JSON.stringify(snapshot)}`
     const data = await callGemini(apiKey, {
       contents: [{ parts: [{ text: prompt }] }],
