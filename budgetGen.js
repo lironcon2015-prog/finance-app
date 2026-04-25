@@ -11,13 +11,14 @@
 //   recurringFloor = Σ non-monthly recurring items hitting the target month
 //   suggested = max(suggested_raw, recurringFloor), rounded to 10
 //
-// Outlier rule (25%): if one month is >25% above the mean of the *other*
+// Outlier rule (100%): if one month is >100% above the mean of the *other*
 // months, treat it as a one-off and exclude it from the baseline. Applied
 // symmetrically for expenses and income (unusual low/high both handled via
 // abs ratio).
 
 let _budgetGenProposals = null
-let _budgetGenAdvice = ''
+let _budgetGenAdvice = ''                // overall summary (optional)
+let _budgetGenAdvicePerCat = {}          // categoryId → short Hebrew note
 let _budgetGenTargetMonth = null  // 'YYYY-MM'
 
 function _bgMean(arr) {
@@ -32,7 +33,7 @@ function _bgMedian(arr) {
   return s.length % 2 === 0 ? (s[mid-1] + s[mid]) / 2 : s[mid]
 }
 
-// For each value v_i, compare to mean-of-others. If ratio >1.25 → outlier.
+// For each value v_i, compare to mean-of-others. If ratio >2.0 → outlier.
 function _bgTrimmedMean25(values) {
   if (values.length <= 1) return { trimmed: values[0] || 0, outliers: [], wasTrimmed: false }
   const outliers = []
@@ -41,7 +42,7 @@ function _bgTrimmedMean25(values) {
     const othersMean = _bgMean(others)
     if (Math.abs(othersMean) < 0.01) continue
     const ratio = Math.abs(values[i]) / Math.abs(othersMean)
-    if (ratio > 1.25) outliers.push(i)
+    if (ratio > 2.0) outliers.push(i)
   }
   const kept = values.filter((_, i) => !outliers.includes(i))
   const trimmed = kept.length > 0 ? _bgMean(kept) : _bgMean(values)
@@ -108,12 +109,11 @@ function generateBudgetProposals(targetMonth) {
   const txs = getTransactions()
   const savingsInvestIds = analysisExpenseSavingsInvestIds()
 
-  // Date range: first day of earliest month through last day of most recent.
-  const startISO = `${months[0]}-01`
-  const [ey, em] = months[months.length - 1].split('-').map(Number)
-  const endDate = new Date(ey, em, 0)  // last day of that month
-  const endISO = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,'0')}-${String(endDate.getDate()).padStart(2,'0')}`
-  const periodTx = txs.filter(t => t.date && t.date >= startISO && t.date <= endISO)
+  // Pre-filter to baseline months by EFFECTIVE month, so CC purchases at
+  // end-of-month whose raw date falls outside the calendar range still get
+  // included in the right billing month.
+  const monthsSet = new Set(months)
+  const periodTx = txs.filter(t => t.date && monthsSet.has(getTxEffectiveMonth(t)))
 
   // Last-month budgets (for 70/30 blend), keyed by categoryId|type.
   const prevMonthKey = _bgPrevMonthKey(target)
@@ -193,6 +193,7 @@ function generateBudgetProposals(targetMonth) {
 
 function openBudgetGenModal(targetMonth) {
   _budgetGenAdvice = ''
+  _budgetGenAdvicePerCat = {}
   const target = targetMonth || (typeof getBudgetScreenMonth === 'function' ? getBudgetScreenMonth() : _bgCurrentMonthKey())
   generateBudgetProposals(target)
   _renderBudgetGenModal()
@@ -240,10 +241,14 @@ function _renderBudgetGenModal() {
     const floorLine = p.flooredByRecurring
       ? `<div class="bgen-floor-tag" title="המחזורי-הלא-חודשי שצפוי בחודש היעד גבוה מהבסיס — התקציב הועלה להתאמה">📌 רצפה ממחזורי: ${formatCurrency(p.recurringFloor)}</div>`
       : ''
+    const aiAdvice = _budgetGenAdvicePerCat[p.categoryId]
+    const aiLine = aiAdvice
+      ? `<div class="bgen-ai-advice" title="המלצת AI">💡 ${aiAdvice}</div>`
+      : ''
     return `
       <tr>
         <td><input type="checkbox" onchange="_toggleBudgetProposal(${idx})" ${p.include?'checked':''}></td>
-        <td><span class="budget-cat-name">${p.category.icon||''} ${p.category.name}</span>${notesHTML}</td>
+        <td><span class="budget-cat-name">${p.category.icon||''} ${p.category.name}</span>${notesHTML}${aiLine}</td>
         <td class="bgen-months">${monthsCols}</td>
         <td class="bgen-stats">
           <div>חציון: ${formatCurrency(p.median)}</div>
@@ -283,13 +288,13 @@ function _renderBudgetGenModal() {
 
   const advice = _budgetGenAdvice ? `
     <div class="bgen-advice">
-      <strong>💡 המלצת AI</strong>
+      <strong>💡 סיכום AI כללי</strong>
       <div style="white-space:pre-wrap;margin-top:.5rem">${_budgetGenAdvice}</div>
     </div>` : ''
 
   body.innerHTML = `
     <div style="color:var(--text-muted);font-size:.85rem;margin-bottom:.75rem">
-      מבוסס על 3 חודשים מלאים לפני ${targetLabel}. ערכים חריגים (מעל 25% מעל ממוצע האחרים) הוחרגו מהבסיס.
+      מבוסס על 3 חודשים מלאים לפני ${targetLabel}. ערכים חריגים (מעל 100% מעל ממוצע האחרים) הוחרגו מהבסיס.
       כשקיים תקציב לחודש שקדם, הבלנד הוא 70% בסיס היסטורי + 30% תקציב קודם — עם רצפה מינימלית של הוצאות דו-חודשיות/רבעוניות/שנתיות שצפויות דווקא בחודש היעד.
     </div>
     ${advice}
@@ -339,6 +344,7 @@ async function adviseBudgetWithGemini() {
   if (btn) { btn.disabled = true; btn.textContent = 'טוען…' }
   try {
     const snapshot = _budgetGenProposals.map(p => ({
+      id: p.categoryId,
       category: p.category.name,
       type: p.type,
       months: p.months,
@@ -353,17 +359,63 @@ async function adviseBudgetWithGemini() {
       outliersRemoved: p.wasTrimmed,
       recurringNotes: p.recurringNotes.map(n => `${n.vendor}:${n.cadence}${n.expectedThisMonth?'(צפוי בחודש היעד)':''}`),
     }))
-    const prompt = `אתה יועץ פיננסי אישי דובר עברית. לפניך הצעות לתקציב חודשי לפי קטגוריה, שחושבו מקומית מ-3 חודשים מלאים לפני חודש היעד, עם החרגת ערכים חריגים (מעל 25% מעל ממוצע האחרים), בלנד 70/30 עם תקציב החודש הקודם כשקיים, ורצפה של מחזוריים דו-חודשיים/רבעוניים/שנתיים שצפויים בחודש היעד.
-ענה בעברית, קצר ותמציתי (עד 10 שורות): האם ההצעות נראות סבירות? אילו קטגוריות מומלץ לבחון שוב (למשל כי יש הוצאה דו-חודשית צפויה, חריגות שחוזרות, או פער גדול בין ההיסטוריה לתקציב החודש הקודם)? אל תמציא מספרים — התייחס רק לנתון שלפניך.
+    const prompt = `אתה כלכלן ויועץ פיננסי מקצועי, מומחה בבניית תקציב למשק בית בישראל. אתה משתמש בסטנדרטים מקובלים של ניהול תקציב ביתי (יחסים סבירים בין קטגוריות, רזרבה לחירום, יחס חיסכון בריא, זיהוי הוצאות שמרגישות "טבעיות" אבל יכולות להישחק).
+
+ההצעות לפניך חושבו מקומית מ-3 חודשים מלאים לפני חודש היעד: בסיס היסטורי = ממוצע מקוצץ (חריגות מעל 100% מעל ממוצע האחרים מוחרגות), בלנד 70/30 עם תקציב החודש הקודם כשקיים, ורצפה של מחזוריים דו-חודשיים/רבעוניים/שנתיים שצפויים בחודש היעד.
+
+המשימה שלך: לכל קטגוריה תן הערה מקצועית קצרה (משפט אחד עד שניים, מקסימום 22 מילים, בעברית, גוף ראשון של יועץ). ההערה חייבת להיות ספציפית לנתוני הקטגוריה — לא תבנית כללית. שקול:
+- האם רמת ההוצאה סבירה למשק בית ישראלי טיפוסי בקטגוריה הזו
+- מגמה (עולה/יורד/יציב), תנודתיות, וחריגות שחוזרות
+- היחס לסך התקציב (אם הקטגוריה דומיננטית מדי או נמוכה משמעותית)
+- אם יש הוצאה מחזורית צפויה — התייחס אליה
+- פערים בין ההיסטוריה לתקציב הקודם
+
+ההערה צריכה להיות פרקטית: ציין אם ההצעה נראית גבוהה/נמוכה/סבירה, ואם רלוונטי הצע פעולה ("שקול להעלות ל...", "כדאי לבחון פוטנציאל חיסכון", "סטטיסטיקה יציבה — ההצעה מאוזנת").
+
+**חובה לתת הערה לכל קטגוריה ברשימה — גם אם המצב תקין, כתוב את התובנה המקצועית.**
+
+החזר JSON תקני בלבד במבנה:
+{ "perCategory": [ { "id": "<id מהנתונים>", "advice": "<טקסט עברי קצר>" }, ... ], "summary": "<משפט סיכום כללי על איכות התקציב הכולל>" }
 
 נתונים:
 ${JSON.stringify(snapshot)}`
-    const data = await callGemini(apiKey, { contents:[{ parts:[{ text: prompt }] }], generationConfig:{ temperature: 0.3 } })
+    const data = await callGemini(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.3,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            perCategory: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  id: { type: 'STRING' },
+                  advice: { type: 'STRING' },
+                },
+                required: ['id', 'advice'],
+              },
+            },
+            summary: { type: 'STRING' },
+          },
+          required: ['perCategory'],
+        },
+      },
+    })
     const parts = data.candidates?.[0]?.content?.parts || []
     let text = ''
     for (const p of parts) { if (!p.thought && p.text) { text = p.text; break } }
-    if (!text) text = parts[0]?.text || 'לא התקבלה תשובה'
-    _budgetGenAdvice = text
+    if (!text) text = parts[0]?.text || ''
+    const parsed = JSON.parse(text)
+    _budgetGenAdvicePerCat = {}
+    ;(parsed.perCategory || []).forEach(item => {
+      if (item && item.id && item.advice && String(item.advice).trim()) {
+        _budgetGenAdvicePerCat[item.id] = String(item.advice).trim()
+      }
+    })
+    _budgetGenAdvice = parsed.summary ? String(parsed.summary).trim() : ''
   } catch (e) {
     _budgetGenAdvice = 'שגיאה: ' + (e.message || e)
   }
