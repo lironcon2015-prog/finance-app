@@ -385,7 +385,7 @@ function _renderTopVendors(periodTx) {
     const ca = analysisExpenseAmount(t, savingsInvestIds)
     if (ca <= 0) return
     const raw = (t.vendor || '—').trim()
-    const display = resolveVendor(raw) || raw || '—'
+    const display = resolveVendor(raw, t.amount) || raw || '—'
     if (!byVendor[display]) byVendor[display] = { displayName: display, total: 0, count: 0, rawVendors: new Set() }
     byVendor[display].total += ca
     byVendor[display].count++
@@ -496,7 +496,7 @@ function _renderVendorDrill() {
 
   // Pull ALL tx (any account, any type) whose resolved vendor matches this
   // display name. No P&L filter — the user wants full picture.
-  const allTx = getTransactions().filter(t => (resolveVendor(t.vendor) || t.vendor || '').trim() === displayName)
+  const allTx = getTransactions().filter(t => (resolveVendor(t.vendor, t.amount) || t.vendor || '').trim() === displayName)
   const rawNames = [...new Set(allTx.map(t => (t.vendor || '').trim()).filter(Boolean))]
 
   const { start, end } = _getVendorDrillBounds()
@@ -522,18 +522,31 @@ function _renderVendorDrill() {
   // Alias block: if multiple raw names map here OR this looks like one raw
   // name the user may want to rename, show alias controls.
   const existingAlias = getVendorAliases().find(a => a.displayName === displayName)
+  const existingMin = typeof existingAlias?.amountMin === 'number' ? existingAlias.amountMin : ''
+  const existingMax = typeof existingAlias?.amountMax === 'number' ? existingAlias.amountMax : ''
   const aliasBlock = `
     <div class="vendor-alias-panel">
       <div class="vendor-alias-head">
         🔗 איחוד שמות ספקים
         ${existingAlias ? '<span class="vendor-alias-tag">קיים</span>' : ''}
       </div>
-      <div class="vendor-alias-sub">כל ביטוי (שורה אחת לכל אחד) שיימצא בשם הספק יוצג מעתה כ־"${displayName}". ההאחדה חלה מיידית על כל העסקאות הקיימות ועל כל ייבוא עתידי.</div>
+      <div class="vendor-alias-sub">כל ביטוי (שורה אחת לכל אחד) שיימצא בשם הספק יוצג מעתה כ־"${displayName}". ההאחדה חלה מיידית על כל העסקאות הקיימות ועל כל ייבוא עתידי. ניתן להגביל את האיחוד לטווח סכומים — שימושי כשאותה מילת מפתח (למשל "העברה בנקאית") מציינת תשלומים שונים בסכומים שונים.</div>
       <div class="vendor-alias-body">
         <label class="form-label">שם תצוגה</label>
         <input id="vendorAliasDisplayName" value="${(existingAlias?.displayName || displayName).replace(/"/g, '&quot;')}">
         <label class="form-label" style="margin-top:.6rem">ביטויים לזיהוי (שורה לכל אחד)</label>
         <textarea id="vendorAliasPatterns" rows="3" placeholder="למשל:&#10;משיכת שיק 2500&#10;שיק שכירות">${(existingAlias?.patterns || rawNames).join('\n')}</textarea>
+        <div style="display:flex;gap:.6rem;margin-top:.6rem;flex-wrap:wrap">
+          <div style="flex:1;min-width:120px">
+            <label class="form-label">סכום מינימום</label>
+            <input id="vendorAliasAmountMin" type="number" step="0.01" placeholder="ללא" value="${existingMin}">
+          </div>
+          <div style="flex:1;min-width:120px">
+            <label class="form-label">סכום מקסימום</label>
+            <input id="vendorAliasAmountMax" type="number" step="0.01" placeholder="ללא" value="${existingMax}">
+          </div>
+        </div>
+        <div style="font-size:.75rem;color:var(--text-muted);margin-top:.3rem">לסכום מדויק — מלאו את שני השדות עם אותו הערך. ריק = ללא הגבלה. מתבסס על ערך מוחלט.</div>
         <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem">
           ${existingAlias ? `<button class="btn-danger" style="font-size:.8rem;padding:.35rem .8rem" onclick="deleteVendorAliasFromDrill('${existingAlias.id}')">מחק איחוד</button>` : ''}
           <button class="btn-primary" style="font-size:.8rem;padding:.35rem .8rem" onclick="saveVendorAliasFromDrill(${existingAlias ? `'${existingAlias.id}'` : 'null'})">${existingAlias ? 'עדכן איחוד' : 'צור איחוד'}</button>
@@ -590,13 +603,15 @@ function _renderVendorDrill() {
 function saveVendorAliasFromDrill(existingId) {
   const displayName = document.getElementById('vendorAliasDisplayName').value.trim()
   const patternsRaw = document.getElementById('vendorAliasPatterns').value
+  const minRaw = document.getElementById('vendorAliasAmountMin')?.value
+  const maxRaw = document.getElementById('vendorAliasAmountMax')?.value
   const patterns = patternsRaw.split('\n').map(s => s.trim()).filter(Boolean)
   if (!displayName) { alert('שם תצוגה חובה'); return }
   if (patterns.length === 0) { alert('יש להזין לפחות ביטוי אחד'); return }
   if (existingId && existingId !== 'null') {
-    updateVendorAlias(existingId, patterns, displayName)
+    updateVendorAlias(existingId, patterns, displayName, minRaw, maxRaw)
   } else {
-    addVendorAlias(patterns, displayName)
+    addVendorAlias(patterns, displayName, minRaw, maxRaw)
   }
   if (_vendorDrill) _vendorDrill.displayName = displayName
   _renderVendorDrill()

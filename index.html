@@ -445,7 +445,7 @@
           ההאחדה חלה מיידית על כל העסקאות הקיימות ועל כל ייבוא עתידי — הנתונים הגולמיים נשמרים, רק התצוגה משתנה.
           אפשר גם ליצור איחוד ישירות מטופ הספקים בניתוח התזרים.
         </p>
-        <div class="form-row" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem">
+        <div class="form-row" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-bottom:.5rem">
           <div style="flex:1;min-width:180px">
             <label class="form-label">שם תצוגה</label>
             <input type="text" id="aliasInputDisplay" placeholder="למשל: דמי שכירות">
@@ -454,8 +454,19 @@
             <label class="form-label">ביטויים לזיהוי (מופרדים בפסיקים)</label>
             <input type="text" id="aliasInputPatterns" placeholder="שיק 2500, שיק 4123">
           </div>
+          <div style="flex:0 0 110px">
+            <label class="form-label">סכום מ־</label>
+            <input type="number" step="0.01" id="aliasInputAmountMin" placeholder="ללא">
+          </div>
+          <div style="flex:0 0 110px">
+            <label class="form-label">סכום עד</label>
+            <input type="number" step="0.01" id="aliasInputAmountMax" placeholder="ללא">
+          </div>
           <button class="btn-primary" onclick="addAliasFromForm()">הוסף איחוד</button>
         </div>
+        <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 1rem">
+          טווח סכום אופציונלי — האיחוד יחול רק כש-|סכום העסקה| נופל בטווח. לסכום מדויק, מלאו את שני השדות עם אותו הערך.
+        </p>
         <div id="aliasList"></div>
       </div>
     </div>
@@ -646,21 +657,21 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.12.9';</script>
-<script src="app.js?v=1.12.9"></script>
-<script src="core.js?v=1.12.9"></script>
-<script src="templates.js?v=1.12.9"></script>
-<script src="autocat.js?v=1.12.9"></script>
-<script src="budget.js?v=1.12.9"></script>
-<script src="budgetGen.js?v=1.12.9"></script>
-<script src="recurring.js?v=1.12.9"></script>
-<script src="dashboard.js?v=1.12.9"></script>
-<script src="transactions.js?v=1.12.9"></script>
-<script src="wizard.js?v=1.12.9"></script>
-<script src="import.js?v=1.12.9"></script>
-<script src="analysis.js?v=1.12.9"></script>
-<script src="settings.js?v=1.12.9"></script>
-<script src="drive.js?v=1.12.9"></script>
+<script>const _v = '1.13.0';</script>
+<script src="app.js?v=1.13.0"></script>
+<script src="core.js?v=1.13.0"></script>
+<script src="templates.js?v=1.13.0"></script>
+<script src="autocat.js?v=1.13.0"></script>
+<script src="budget.js?v=1.13.0"></script>
+<script src="budgetGen.js?v=1.13.0"></script>
+<script src="recurring.js?v=1.13.0"></script>
+<script src="dashboard.js?v=1.13.0"></script>
+<script src="transactions.js?v=1.13.0"></script>
+<script src="wizard.js?v=1.13.0"></script>
+<script src="import.js?v=1.13.0"></script>
+<script src="analysis.js?v=1.13.0"></script>
+<script src="settings.js?v=1.13.0"></script>
+<script src="drive.js?v=1.13.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

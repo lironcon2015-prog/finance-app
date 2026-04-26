@@ -25,30 +25,42 @@ function renderAliasList() {
     return
   }
   el.innerHTML = `
-    <div class="rules-table-head">
+    <div class="rules-table-head" style="grid-template-columns:1fr 1.5fr auto auto">
       <div>שם תצוגה</div>
       <div>ביטויים</div>
+      <div>טווח סכום</div>
       <div></div>
     </div>
-    ${aliases.map(a => `
-      <div class="rules-row">
+    ${aliases.map(a => {
+      const range = formatAliasAmountRange(a.amountMin, a.amountMax)
+      const rangeCell = range
+        ? `<span class="vendor-raw-chip" style="background:var(--accent-bg);color:var(--accent)">${range}</span>`
+        : `<span style="color:var(--text-muted);font-size:.8rem">ללא</span>`
+      return `
+      <div class="rules-row" style="grid-template-columns:1fr 1.5fr auto auto">
         <div class="rules-pattern" style="font-weight:600">${a.displayName}</div>
         <div class="rules-cat">${(a.patterns || []).map(p => `<span class="vendor-raw-chip">${p}</span>`).join(' ')}</div>
+        <div>${rangeCell}</div>
         <div style="display:flex;gap:.4rem">
           <button class="btn-ghost" style="font-size:.8rem;padding:.3rem .7rem" onclick="editAliasPrompt('${a.id}')">ערוך</button>
           <button class="btn-danger" onclick="removeAlias('${a.id}')">מחק</button>
         </div>
-      </div>`).join('')}`
+      </div>`
+    }).join('')}`
 }
 
 function addAliasFromForm() {
   const displayName = document.getElementById('aliasInputDisplay').value.trim()
   const patternsRaw = document.getElementById('aliasInputPatterns').value
+  const minRaw = document.getElementById('aliasInputAmountMin')?.value
+  const maxRaw = document.getElementById('aliasInputAmountMax')?.value
   const patterns = patternsRaw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
   if (!displayName || patterns.length === 0) { alert('שם תצוגה וביטוי אחד לפחות חובה'); return }
-  addVendorAlias(patterns, displayName)
+  addVendorAlias(patterns, displayName, minRaw, maxRaw)
   document.getElementById('aliasInputDisplay').value = ''
   document.getElementById('aliasInputPatterns').value = ''
+  const minEl = document.getElementById('aliasInputAmountMin'); if (minEl) minEl.value = ''
+  const maxEl = document.getElementById('aliasInputAmountMax'); if (maxEl) maxEl.value = ''
   renderAliasList()
 }
 
@@ -59,9 +71,16 @@ function editAliasPrompt(id) {
   if (newDisplay === null) return
   const newPatterns = prompt('ביטויים לזיהוי (שורה/פסיק לכל אחד):', (alias.patterns || []).join(', '))
   if (newPatterns === null) return
+  const currentRange = formatAliasAmountRange(alias.amountMin, alias.amountMax)
+  const newRange = prompt(
+    'טווח סכום (לדוגמה: 100-200, או 5000 לסכום מדויק. ריק = ללא הגבלה):',
+    currentRange
+  )
+  if (newRange === null) return
   const patterns = newPatterns.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
   if (!newDisplay.trim() || patterns.length === 0) { alert('שם תצוגה וביטוי אחד לפחות חובה'); return }
-  updateVendorAlias(id, patterns, newDisplay.trim())
+  const { amountMin, amountMax } = parseAliasAmountRange(newRange)
+  updateVendorAlias(id, patterns, newDisplay.trim(), amountMin, amountMax)
   renderAliasList()
 }
 

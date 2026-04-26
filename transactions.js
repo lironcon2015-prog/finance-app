@@ -89,7 +89,7 @@ function _getFiltered() {
         if (!touches) return false
       }
       if (search) {
-        const hay = ((t.vendor||'') + (t.description||'') + (resolveVendor(t.vendor)||'')).toLowerCase()
+        const hay = ((t.vendor||'') + (t.description||'') + (resolveVendor(t.vendor, t.amount)||'')).toLowerCase()
         if (!hay.includes(search)) return false
       }
       return true
@@ -194,7 +194,7 @@ function _drawTxTable() {
           return `<tr ${isNonCounted||isMirror?'class="tx-noncounted"':''}>
             <td>${formatDate(tx.date)}</td>
             ${effCell}
-            <td><div style="font-weight:500">${resolveVendor(tx.vendor)||'—'}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
+            <td><div style="font-weight:500">${resolveVendor(tx.vendor, tx.amount)||'—'}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
             <td>${catBadge}</td>
             <td class="${amountCls}">${dispAmt>0?'+':''}${formatCurrency(dispAmt)}</td>
             <td>${typeBadge}</td>

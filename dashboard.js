@@ -217,7 +217,7 @@ function _renderRecentTx(all) {
           <div class="recent-tx-left">
             <div class="recent-tx-icon">${cat?.icon || '📋'}</div>
             <div>
-              <div class="recent-tx-name">${resolveVendor(tx.vendor) || tx.description || '—'}${badge}</div>
+              <div class="recent-tx-name">${resolveVendor(tx.vendor, tx.amount) || tx.description || '—'}${badge}</div>
               <div class="recent-tx-meta">${formatDate(tx.date)} · ${cat?.name || 'לא מסווג'}</div>
             </div>
           </div>

@@ -52,13 +52,18 @@ function computeAutoCategorizePlan() {
   return { autoApplied, ambiguous: Object.values(ambiguous) }
 }
 
+// Auto-categorization NEVER overwrites an existing categoryId. The plan is
+// already built from uncategorized rows only, but we re-check here so any
+// future caller of these helpers is bound by the same contract.
 function applyAutoCategorizeConfident(plan) {
   if (plan.autoApplied.length === 0) return 0
   const map = new Map(plan.autoApplied.map(a => [a.txId, a.catId]))
   const txs = getTransactions()
   let n = 0
   txs.forEach(t => {
-    if (map.has(t.id)) { t.categoryId = map.get(t.id); n++ }
+    if (!map.has(t.id)) return
+    if (t.categoryId) return
+    t.categoryId = map.get(t.id); n++
   })
   DB.set('finTransactions', txs)
   return n
@@ -70,7 +75,9 @@ function applyCategoryToTxIds(txIds, catId) {
   const txs = getTransactions()
   let n = 0
   txs.forEach(t => {
-    if (set.has(t.id)) { t.categoryId = catId; n++ }
+    if (!set.has(t.id)) return
+    if (t.categoryId) return
+    t.categoryId = catId; n++
   })
   DB.set('finTransactions', txs)
   return n

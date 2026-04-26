@@ -4,8 +4,11 @@
 // name — "משיכת שיק 2500" + "דמי שכירות" — group together), then delegate
 // to the canonical normalizer in autocat.js. autocat.js is loaded before
 // recurring.js in index.html, so the function is globally available.
-function _normalizeVendor(v) {
-  const resolved = (typeof resolveVendor === 'function') ? resolveVendor(v) : v
+// `amount` flows through so amount-conditional aliases resolve correctly:
+// e.g. "העברה" tx of ₪5,000 groups under "משכנתא" while a ₪200 "העברה"
+// stays raw.
+function _normalizeVendor(v, amount) {
+  const resolved = (typeof resolveVendor === 'function') ? resolveVendor(v, amount) : v
   return (typeof normalizeVendorForAutocat === 'function')
     ? normalizeVendorForAutocat(resolved)
     : String(resolved || '').toLowerCase().trim()
@@ -41,7 +44,7 @@ function detectRecurring() {
   })
   const groups = {}
   txs.forEach(t => {
-    const key = _normalizeVendor(t.vendor)
+    const key = _normalizeVendor(t.vendor, t.amount)
     if (!key) return
     if (!groups[key]) groups[key] = []
     groups[key].push(t)
@@ -76,7 +79,7 @@ function detectRecurring() {
     const avgAmount = filtered.reduce((s,t)=>s+t.amount,0) / filtered.length
     out.push({
       key,
-      vendor: resolveVendor(filtered[filtered.length-1].vendor),
+      vendor: resolveVendor(filtered[filtered.length-1].vendor, filtered[filtered.length-1].amount),
       cadence: cadence.cadence,
       cadenceLabel: cadence.label,
       cadenceDays: cadence.days,
@@ -120,7 +123,7 @@ function forecastCashFlow(monthsAhead = 3) {
   const recent = getTransactions().filter(t => {
     if (!t.date) return false
     if (new Date(t.date) < threeMoAgo) return false
-    if (recurringKeys.has(_normalizeVendor(t.vendor))) return false
+    if (recurringKeys.has(_normalizeVendor(t.vendor, t.amount))) return false
     return true
   })
   const avgMonthlyIncome = sumIncome(recent) / 3
@@ -293,8 +296,8 @@ function applyDrillCustom() {
 
 function _renderDrillModal() {
   if (!_drillKey) return
-  const allTx = getTransactions().filter(t => _normalizeVendor(t.vendor) === _drillKey)
-  const vendor = (allTx[0] && resolveVendor(allTx[0].vendor)) || _drillKey
+  const allTx = getTransactions().filter(t => _normalizeVendor(t.vendor, t.amount) === _drillKey)
+  const vendor = (allTx[0] && resolveVendor(allTx[0].vendor, allTx[0].amount)) || _drillKey
   document.getElementById('drillTitle').textContent = `היסטוריית "${vendor}"`
 
   const { start, end } = _getDrillBounds()
@@ -325,7 +328,7 @@ function _renderDrillModal() {
         return `
           <tr>
             <td>${formatDate(t.date)}</td>
-            <td style="font-weight:500">${resolveVendor(t.vendor) || '—'}</td>
+            <td style="font-weight:500">${resolveVendor(t.vendor, t.amount) || '—'}</td>
             <td>${cat ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon||''} ${cat.name}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
             <td class="${t.amount>0?'amount-inc':'amount-exp'}" style="font-weight:600">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
           </tr>`

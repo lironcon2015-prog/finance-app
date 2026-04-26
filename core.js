@@ -471,9 +471,15 @@ function matchVendorToCategory(vendor, description) {
 // (recurring detection, top vendors, etc.) also uses the resolved name so
 // aliased transactions cluster together.
 //
-// Storage shape: [{ id, patterns: ['pattern1','pattern2'], displayName, createdAt }]
-// Matching is case-insensitive substring. Longer patterns win (so a specific
-// "shufersal express" beats a generic "shufersal"). Exact match also trumps.
+// Storage shape:
+//   [{ id, patterns: ['p1','p2'], displayName,
+//      amountMin?: number, amountMax?: number, createdAt }]
+// amountMin/amountMax are optional. When set, the alias only matches if the
+// transaction's |amount| falls in [amountMin, amountMax]. min===max means
+// exact-amount match. Either bound may be omitted (open-ended range).
+// Matching is case-insensitive substring. Aliases with an amount filter
+// outrank ones without (more specific wins); within each tier, longer
+// needle wins.
 
 let _vendorAliasIdx = null
 let _vendorAliasIdxTs = 0
@@ -485,53 +491,130 @@ function saveVendorAliases(list) {
 }
 function invalidateVendorAliasCache() { _vendorAliasIdx = null }
 
+function _aliasHasAmountFilter(a) {
+  return typeof a.amountMin === 'number' || typeof a.amountMax === 'number'
+}
+
+function _aliasAmountMatches(a, amount) {
+  const hasMin = typeof a.amountMin === 'number'
+  const hasMax = typeof a.amountMax === 'number'
+  if (!hasMin && !hasMax) return true
+  if (typeof amount !== 'number') return false
+  const abs = Math.abs(amount)
+  if (hasMin && abs < a.amountMin) return false
+  if (hasMax && abs > a.amountMax) return false
+  return true
+}
+
 function _getVendorAliasIndex() {
   const now = Date.now()
   if (_vendorAliasIdx && now - _vendorAliasIdxTs < 500) return _vendorAliasIdx
   const aliases = getVendorAliases()
   const idx = []
   aliases.forEach(a => {
-    (a.patterns || []).forEach(p => {
+    const amountMin = typeof a.amountMin === 'number' ? a.amountMin : null
+    const amountMax = typeof a.amountMax === 'number' ? a.amountMax : null
+    ;(a.patterns || []).forEach(p => {
       const needle = String(p || '').trim().toLowerCase()
-      if (needle) idx.push({ id: a.id, needle, displayName: a.displayName })
+      if (needle) idx.push({ id: a.id, needle, displayName: a.displayName, amountMin, amountMax })
     })
   })
-  idx.sort((a, b) => b.needle.length - a.needle.length)
+  // Aliases with an amount filter are more specific — try them first.
+  idx.sort((a, b) => {
+    const aHas = a.amountMin !== null || a.amountMax !== null
+    const bHas = b.amountMin !== null || b.amountMax !== null
+    if (aHas !== bHas) return aHas ? -1 : 1
+    return b.needle.length - a.needle.length
+  })
   _vendorAliasIdx = idx
   _vendorAliasIdxTs = now
   return idx
 }
 
-function resolveVendor(rawVendor) {
+// `amount` is optional. When omitted, aliases that carry an amount filter
+// are skipped (their condition can't be evaluated without an amount).
+function resolveVendor(rawVendor, amount) {
   if (!rawVendor) return rawVendor
   const lower = String(rawVendor).toLowerCase()
-  for (const { needle, displayName } of _getVendorAliasIndex()) {
-    if (lower.includes(needle)) return displayName
+  for (const e of _getVendorAliasIndex()) {
+    if (!lower.includes(e.needle)) continue
+    if (e.amountMin !== null || e.amountMax !== null) {
+      if (typeof amount !== 'number') continue
+      const abs = Math.abs(amount)
+      if (e.amountMin !== null && abs < e.amountMin) continue
+      if (e.amountMax !== null && abs > e.amountMax) continue
+    }
+    return e.displayName
   }
   return rawVendor
 }
 
-function addVendorAlias(patterns, displayName) {
+function _normalizeAliasAmount(v) {
+  if (v === null || v === undefined || v === '') return null
+  const n = parseFloat(v)
+  return isNaN(n) ? null : n
+}
+
+function addVendorAlias(patterns, displayName, amountMin, amountMax) {
   const list = getVendorAliases()
   const patternsArr = (Array.isArray(patterns) ? patterns : [patterns])
     .map(p => String(p || '').trim()).filter(Boolean)
   if (patternsArr.length === 0 || !displayName) return null
-  const entry = { id: genId(), patterns: patternsArr, displayName: String(displayName).trim(), createdAt: Date.now() }
+  const entry = {
+    id: genId(),
+    patterns: patternsArr,
+    displayName: String(displayName).trim(),
+    amountMin: _normalizeAliasAmount(amountMin),
+    amountMax: _normalizeAliasAmount(amountMax),
+    createdAt: Date.now(),
+  }
   list.push(entry)
   saveVendorAliases(list)
   return entry
 }
 
-function updateVendorAlias(id, patterns, displayName) {
+function updateVendorAlias(id, patterns, displayName, amountMin, amountMax) {
   const list = getVendorAliases()
   const idx = list.findIndex(a => a.id === id)
   if (idx < 0) return
   list[idx].patterns = (Array.isArray(patterns) ? patterns : [patterns])
     .map(p => String(p || '').trim()).filter(Boolean)
   list[idx].displayName = String(displayName || '').trim()
+  list[idx].amountMin = _normalizeAliasAmount(amountMin)
+  list[idx].amountMax = _normalizeAliasAmount(amountMax)
   saveVendorAliases(list)
 }
 
 function deleteVendorAlias(id) {
   saveVendorAliases(getVendorAliases().filter(a => a.id !== id))
+}
+
+// "100-200" → {min:100,max:200}; "5000" → {min:5000,max:5000};
+// "100-" → {min:100,max:null}; "-200" → {min:null,max:200}; "" → both null
+function parseAliasAmountRange(str) {
+  const s = String(str || '').trim()
+  if (!s) return { amountMin: null, amountMax: null }
+  if (s.includes('-')) {
+    const [aRaw, bRaw] = s.split('-')
+    const a = aRaw.trim() === '' ? null : parseFloat(aRaw)
+    const b = bRaw.trim() === '' ? null : parseFloat(bRaw)
+    const amountMin = (a !== null && !isNaN(a)) ? a : null
+    const amountMax = (b !== null && !isNaN(b)) ? b : null
+    if (amountMin !== null && amountMax !== null && amountMin > amountMax) {
+      return { amountMin: amountMax, amountMax: amountMin }
+    }
+    return { amountMin, amountMax }
+  }
+  const v = parseFloat(s)
+  return isNaN(v) ? { amountMin: null, amountMax: null } : { amountMin: v, amountMax: v }
+}
+
+function formatAliasAmountRange(amountMin, amountMax) {
+  const hasMin = typeof amountMin === 'number'
+  const hasMax = typeof amountMax === 'number'
+  if (!hasMin && !hasMax) return ''
+  if (hasMin && hasMax && amountMin === amountMax) return String(amountMin)
+  if (hasMin && hasMax) return `${amountMin}-${amountMax}`
+  if (hasMin) return `${amountMin}-`
+  return `-${amountMax}`
 }
