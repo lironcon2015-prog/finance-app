@@ -60,21 +60,38 @@ function _cadencePeriodKey(iso, cadence) {
   return iso
 }
 
-// Manual recurring (flag + merge) average: sum/periods rather than
-// sum/tx_count. If a salary arrives in two transfers each month, the
-// monthly figure is the SUM of the two — not their average.
-// Outlier filter (>100% above per-tx mean) runs first.
-function _avgPerCadencePeriod(txs, cadence) {
+// Average per cadence period over the last 12 months.
+// Groups tx into cadence buckets (month / quarter / etc.), sums per bucket,
+// then divides by the number of buckets that actually had data.
+// ignoreOutliers (user-controlled): removes buckets whose |sum| > 2× the
+// mean of all other buckets — excluded from BOTH numerator and denominator.
+function _avgPerCadencePeriod(txs, cadence, ignoreOutliers = false) {
   if (txs.length === 0) return { avg: 0, sum: 0, periods: 0, kept: [] }
-  const kept = _filterAmountOutliers(txs)
-  const sum = kept.reduce((s,t) => s + (t.amount || 0), 0)
-  const periodKeys = new Set()
-  for (const t of kept) {
+  const now = new Date()
+  const cutoff = _iso(new Date(now.getFullYear(), now.getMonth() - 11, 1))
+  const recent = txs.filter(t => t.date && t.date >= cutoff)
+  if (recent.length === 0) return { avg: 0, sum: 0, periods: 0, kept: [] }
+
+  const periodMap = {}
+  for (const t of recent) {
     const k = _cadencePeriodKey(t.date, cadence)
-    if (k) periodKeys.add(k)
+    if (!k) continue
+    periodMap[k] = (periodMap[k] || 0) + (t.amount || 0)
   }
-  const periods = Math.max(periodKeys.size, 1)
-  return { avg: sum / periods, sum, periods, kept }
+  let entries = Object.entries(periodMap)  // [[periodKey, periodSum], ...]
+
+  if (ignoreOutliers && entries.length >= 3) {
+    const filtered = entries.filter((_, i) => {
+      const others = entries.filter((_, j) => j !== i)
+      const meanOthers = others.reduce((s, [, a]) => s + Math.abs(a), 0) / others.length
+      return Math.abs(entries[i][1]) <= meanOthers * 2
+    })
+    if (filtered.length >= 1) entries = filtered
+  }
+
+  const sum = entries.reduce((s, [, a]) => s + a, 0)
+  const periods = Math.max(entries.length, 1)
+  return { avg: sum / periods, sum, periods, kept: entries.map(([k]) => k) }
 }
 
 function _daysBetween(a, b) {
@@ -114,6 +131,7 @@ function detectRecurring() {
     if (!groups[key]) groups[key] = []
     groups[key].push(t)
   })
+  const ignoreOutliersSet = getIgnoreOutliersSet()
   const out = []
   for (const [key, rawList] of Object.entries(groups)) {
     if (rawList.length < 3) continue
@@ -146,7 +164,7 @@ function detectRecurring() {
     const [ly, lm, ld] = last.date.split('-').map(Number)
     const nextDate = new Date(ly, lm - 1, ld + cadence.days)
     const nextExpected = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-${String(nextDate.getDate()).padStart(2,'0')}`
-    const avgAmount = filtered.reduce((s,t)=>s+t.amount,0) / filtered.length
+    const { avg: avgAmount } = _avgPerCadencePeriod(filtered, cadence.cadence, ignoreOutliersSet.has(key))
     out.push({
       key,
       sourceKey: key,
@@ -187,6 +205,7 @@ function _getManualFlagRecurring() {
       flagByKey[key] = { cadence: t.recurringFlag, date: t.date, ref: t }
     }
   }
+  const ignoreOutliersSet = getIgnoreOutliersSet()
   const out = []
   for (const [key, info] of Object.entries(flagByKey)) {
     const same = all.filter(t =>
@@ -199,7 +218,7 @@ function _getManualFlagRecurring() {
     const sorted = [...same].sort((a,b) => (a.date||'').localeCompare(b.date||''))
     const last = sorted[sorted.length-1]
     const cad = RECURRING_CADENCES[info.cadence] || RECURRING_CADENCES.monthly
-    const { avg, periods } = _avgPerCadencePeriod(same, info.cadence)
+    const { avg, periods } = _avgPerCadencePeriod(same, info.cadence, ignoreOutliersSet.has('mflag:' + key))
     const cadenceMonths = cad.days / 30  // 1 / 2 / 3
     out.push({
       key: 'mflag:' + key,
@@ -319,6 +338,16 @@ function migrateManualGroupVendorKeys_v1() {
   localStorage.setItem('migration_manual_group_vendor_keys_v1', '1')
 }
 
+function getIgnoreOutliersSet() { return new Set(DB.get('finRecurringIgnoreOutliers', [])) }
+function toggleIgnoreOutliers(key) {
+  const s = getIgnoreOutliersSet()
+  if (s.has(key)) s.delete(key); else s.add(key)
+  DB.set('finRecurringIgnoreOutliers', [...s])
+  renderRecurring()
+  if (_drillKey === key) _renderDrillModal()
+}
+function toggleIgnoreOutliersDrill() { if (_drillKey) toggleIgnoreOutliers(_drillKey) }
+
 function unmergeManualRecurringGroup(groupId) {
   const list = getManualRecurringGroups().filter(g => g.id !== groupId)
   saveManualRecurringGroups(list)
@@ -348,6 +377,7 @@ function _getManualGroupRecurring() {
   const groups = getManualRecurringGroups()
   if (groups.length === 0) return []
   const all = getTransactions()
+  const ignoreOutliersSet = getIgnoreOutliersSet()
   const out = []
   for (const g of groups) {
     const txs = all.filter(t => t.recurringGroupId === g.id)
@@ -355,7 +385,7 @@ function _getManualGroupRecurring() {
     const sorted = [...txs].sort((a,b) => (a.date||'').localeCompare(b.date||''))
     const last = sorted[sorted.length-1]
     const cad = RECURRING_CADENCES[g.cadence] || RECURRING_CADENCES.monthly
-    const { avg, periods } = _avgPerCadencePeriod(txs, g.cadence)
+    const { avg, periods } = _avgPerCadencePeriod(txs, g.cadence, ignoreOutliersSet.has('mgroup:' + g.id))
     const cadenceMonths = cad.days / 30
     out.push({
       key: 'mgroup:' + g.id,
@@ -682,6 +712,7 @@ function _renderDrillModal() {
   const totalAmount = filtered.reduce((s, t) => s + t.amount, 0)
   const totalAbs = filtered.reduce((s, t) => s + Math.abs(t.amount), 0)
   const avg = filtered.length > 0 ? totalAmount / filtered.length : 0
+  const isIgnoringOutliers = getIgnoreOutliersSet().has(_drillKey)
 
   const rangeBtn = (key, label) =>
     `<button class="period-btn ${_drillRange===key?'active':''}" onclick="setDrillRange('${key}')">${label}</button>`
@@ -718,6 +749,10 @@ function _renderDrillModal() {
       </div>
       ${customRow}
     </div>
+    <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem;cursor:pointer;font-size:.9rem">
+      <input type="checkbox" ${isIgnoringOutliers ? 'checked' : ''} onchange="toggleIgnoreOutliersDrill()">
+      התעלם מחריגים בחישוב הממוצע
+    </label>
     <div class="drill-stats">
       <div><span class="drill-stat-label">עסקאות</span><span class="drill-stat-val">${filtered.length}</span></div>
       <div><span class="drill-stat-label">סה"כ</span><span class="drill-stat-val ${totalAmount>=0?'income-color':'expense-color'}">${totalAmount>=0?'+':''}${formatCurrency(totalAmount)}</span></div>
