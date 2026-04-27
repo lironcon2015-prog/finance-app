@@ -47,6 +47,36 @@ function _filterAmountOutliers(txs) {
   return kept.length >= 3 ? kept : txs
 }
 
+// Bucket key for "which cadence-period does this date fall into".
+// Used by manual paths to count DISTINCT cadence periods, so two tx in the
+// same month (e.g. wife's salary from two employers) count as ONE monthly
+// occurrence — matching the user-facing notion of "monthly income".
+function _cadencePeriodKey(iso, cadence) {
+  if (!iso) return ''
+  const [y, m] = iso.split('-').map(Number)
+  if (cadence === 'monthly')   return `${y}-${m}`
+  if (cadence === 'bimonthly') return `${y}-${Math.floor((m-1)/2)}`     // 2-month bins
+  if (cadence === 'quarterly') return `${y}-${Math.floor((m-1)/3)}`     // 3-month bins
+  return iso
+}
+
+// Manual recurring (flag + merge) average: sum/periods rather than
+// sum/tx_count. If a salary arrives in two transfers each month, the
+// monthly figure is the SUM of the two — not their average.
+// Outlier filter (>100% above per-tx mean) runs first.
+function _avgPerCadencePeriod(txs, cadence) {
+  if (txs.length === 0) return { avg: 0, sum: 0, periods: 0, kept: [] }
+  const kept = _filterAmountOutliers(txs)
+  const sum = kept.reduce((s,t) => s + (t.amount || 0), 0)
+  const periodKeys = new Set()
+  for (const t of kept) {
+    const k = _cadencePeriodKey(t.date, cadence)
+    if (k) periodKeys.add(k)
+  }
+  const periods = Math.max(periodKeys.size, 1)
+  return { avg: sum / periods, sum, periods, kept }
+}
+
 function _daysBetween(a, b) {
   const da = new Date(a), db = new Date(b)
   return Math.round((db - da) / (1000 * 60 * 60 * 24))
@@ -168,9 +198,9 @@ function _getManualFlagRecurring() {
     if (same.length === 0) continue
     const sorted = [...same].sort((a,b) => (a.date||'').localeCompare(b.date||''))
     const last = sorted[sorted.length-1]
-    const kept = _filterAmountOutliers(same)
-    const avg = kept.reduce((s,t)=>s+t.amount,0) / kept.length
     const cad = RECURRING_CADENCES[info.cadence] || RECURRING_CADENCES.monthly
+    const { avg, periods } = _avgPerCadencePeriod(same, info.cadence)
+    const cadenceMonths = cad.days / 30  // 1 / 2 / 3
     out.push({
       key: 'mflag:' + key,
       sourceKey: key,
@@ -179,10 +209,11 @@ function _getManualFlagRecurring() {
       cadenceLabel: cad.label,
       cadenceDays: cad.days,
       avgAmount: avg,
-      smoothedMonthly: avg * (30 / cad.days),
+      smoothedMonthly: avg / cadenceMonths,
       lastSeen: last.date,
       nextExpected: _addDays(last.date, cad.days),
       occurrences: same.length,
+      periods,
       accountId: last.accountId,
       categoryId: last.categoryId,
       source: 'manual-flag',
@@ -256,9 +287,9 @@ function _getManualGroupRecurring() {
     if (txs.length === 0) continue
     const sorted = [...txs].sort((a,b) => (a.date||'').localeCompare(b.date||''))
     const last = sorted[sorted.length-1]
-    const kept = _filterAmountOutliers(txs)
-    const avg = kept.reduce((s,t)=>s+t.amount,0) / kept.length
     const cad = RECURRING_CADENCES[g.cadence] || RECURRING_CADENCES.monthly
+    const { avg, periods } = _avgPerCadencePeriod(txs, g.cadence)
+    const cadenceMonths = cad.days / 30
     out.push({
       key: 'mgroup:' + g.id,
       groupId: g.id,
@@ -267,12 +298,13 @@ function _getManualGroupRecurring() {
       cadenceLabel: cad.label,
       cadenceDays: cad.days,
       avgAmount: avg,
-      smoothedMonthly: avg * (30 / cad.days),
+      smoothedMonthly: avg / cadenceMonths,
       lastSeen: last.date,
       nextExpected: _addDays(last.date, cad.days),
       occurrences: txs.length,
-      accountId: last.accountId,
-      categoryId: last.categoryId,
+      periods,
+      accountId: g.accountId || last.accountId,
+      categoryId: g.categoryId || last.categoryId,
       source: 'manual-group',
     })
   }
@@ -451,7 +483,7 @@ function renderRecurring() {
         <td class="${amountCls}">${r.smoothedMonthly>0?'+':''}${formatCurrency(r.smoothedMonthly)}${smoothNote}</td>
         <td>${formatDate(r.lastSeen)}</td>
         <td>${formatDate(r.nextExpected)}</td>
-        <td>${r.occurrences}</td>
+        <td title="${r.periods && r.periods !== r.occurrences ? r.occurrences + ' עסקאות לאורך ' + r.periods + ' תקופות' : r.occurrences + ' מופעים'}">${r.periods && r.periods !== r.occurrences ? `${r.occurrences} <span style="color:var(--text-muted);font-size:.7rem">(${r.periods})</span>` : r.occurrences}</td>
         <td onclick="event.stopPropagation()">
           ${isHidden
             ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="unhideRecurringByIdx('${idx}')">שחזר</button>`

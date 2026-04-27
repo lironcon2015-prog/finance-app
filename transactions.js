@@ -75,8 +75,10 @@ function _getFiltered() {
   const isUncat = t => !t.categoryId || !validCatIds.has(t.categoryId)
   return filterByEffectivePeriod(getTransactions(), period)
     .filter(t => {
-      // Tx absorbed into a manual recurring group are surfaced ONLY there.
-      if (t.recurringGroupId) return false
+      // Tx that belong to a manual recurring group STAY in the tx list (the
+      // user's bank still reflects them as separate operations) — they only
+      // appear merged on the recurring screen. The row gets a 🔗 chip so it's
+      // visually obvious which entries are linked.
       if (type !== 'all') {
         if (type === 'uncategorized') { if (!isUncat(t)) return false }
         else if (t.type !== type) return false
@@ -227,6 +229,15 @@ function _drawTxTable() {
           const recurringFlagBadge = tx.recurringFlag
             ? `<span class="type-badge type-refund" title="מסומן כקבוע (${recurringCadenceLabel(tx.recurringFlag)})" style="margin-inline-start:.3rem">🔁 ${recurringCadenceLabel(tx.recurringFlag)}</span>`
             : ''
+          // Linked-tx chip: tx is part of a manual recurring merge group.
+          // Tap = open the merged entry's drill in the recurring screen.
+          const groupBadge = tx.recurringGroupId && typeof getManualRecurringGroups === 'function'
+            ? (() => {
+                const grp = getManualRecurringGroups().find(g => g.id === tx.recurringGroupId)
+                if (!grp) return ''
+                return `<span class="type-badge type-transfer" title="חלק מקבוצת קבועה: ${grp.label}" style="margin-inline-start:.3rem;cursor:pointer" onclick="event.stopPropagation();openRecurringDrill('mgroup:${grp.id}')">🔗 ${grp.label}</span>`
+              })()
+            : ''
           const selectCell = _txSelectMode
             ? `<td onclick="event.stopPropagation()"><input type="checkbox" ${_txSelected.has(tx.id)?'checked':''} onclick="toggleTxSelected('${tx.id}')"></td>`
             : ''
@@ -234,7 +245,7 @@ function _drawTxTable() {
             ${selectCell}
             <td>${formatDate(tx.date)}</td>
             ${effCell}
-            <td><div style="font-weight:500">${resolveVendor(tx.vendor, tx.amount)||'—'}${recurringFlagBadge}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
+            <td><div style="font-weight:500">${resolveVendor(tx.vendor, tx.amount)||'—'}${recurringFlagBadge}${groupBadge}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
             <td>${catBadge}</td>
             <td class="${amountCls}">${dispAmt>0?'+':''}${formatCurrency(dispAmt)}</td>
             <td>${typeBadge}</td>

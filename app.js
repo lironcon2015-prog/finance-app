@@ -1,4 +1,4 @@
-const APP_VERSION = '1.15.0'
+const APP_VERSION = '1.15.1'
 
 // ===== STORAGE =====
 const DB = {
@@ -249,6 +249,15 @@ function openEditModal(id) {
     <div class="modal-row" id="editDestRow" style="display:${showDest}"><label class="form-label">חשבון יעד (להעברה)</label><select id="editDestAccount"><option value="">—</option>${destAccOptions}</select></div>
     <div class="modal-row"><label class="form-label">קטגוריה</label><select id="editCategory"><option value="">ללא קטגוריה</option>${catOptions}</select></div>
     <div class="modal-row" style="margin-top:-.5rem"><button type="button" class="btn-ghost" style="font-size:.85rem;padding:.45rem .8rem" onclick="applyCategoryToAllSimilar()">החל קטגוריה על כל העסקאות עם אותו ספק (קדימה ואחורה)</button></div>
+    ${tx.recurringGroupId ? (() => {
+      const grp = (typeof getManualRecurringGroups === 'function') ? getManualRecurringGroups().find(g => g.id === tx.recurringGroupId) : null
+      const label = grp?.label || 'קבוצה ידנית'
+      return `<div class="modal-row" style="background:var(--bg-elevated);padding:.6rem .8rem;border-radius:8px;font-size:.85rem">
+        🔗 חלק מקבוצת קבועה: <strong>${label}</strong>
+        <div style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem">הקבוצה אחראית על ה-cadence והאיחוד במסך הקבועות. כדי להוציא את העסקה — פרק את הקבוצה במסך הקבועות.</div>
+        <input type="hidden" id="editRecurringFlag" value="${tx.recurringFlag || ''}">
+      </div>`
+    })() : `
     <div class="modal-row">
       <label class="form-label">סימון כקבוע</label>
       <select id="editRecurringFlag">
@@ -258,7 +267,7 @@ function openEditModal(id) {
         <option value="quarterly"  ${tx.recurringFlag==='quarterly' ?'selected':''}>רבעוני</option>
       </select>
       <div style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem">סימון מעלה את העסקה (ואת שאר העסקאות מאותו ספק) למסך ההוצאות/הכנסות הקבועות גם כשהזיהוי האוטומטי לא תופס אותן.</div>
-    </div>
+    </div>`}
     <div class="modal-row"><label class="form-label">הערות</label><input id="editNotes" value="${tx.notes || ''}"></div>
   `
   document.getElementById('editModal').classList.add('open')
