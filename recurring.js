@@ -232,24 +232,91 @@ function saveManualRecurringGroups(list) { DB.set('finManualRecurringGroups', li
 function createManualRecurringGroup({ label, cadence, txIds }) {
   if (!label || !cadence || !Array.isArray(txIds) || txIds.length === 0) return null
   if (!RECURRING_CADENCES[cadence]) return null
+  const txs = getTransactions()
+  const selectedSet = new Set(txIds)
+  const selected = txs.filter(t => selectedSet.has(t.id))
+  if (selected.length === 0) return null
+  // The selected tx define the group's vendor-key membership. Any past or
+  // future tx with one of these keys auto-joins the group, so the user
+  // doesn't have to re-merge each month.
+  const vendorKeys = [...new Set(
+    selected.map(t => _normalizeVendor(t.vendor, t.amount)).filter(Boolean)
+  )]
   const id = genId()
   const list = getManualRecurringGroups()
-  list.push({ id, label: String(label).trim(), cadence, createdAt: Date.now() })
+  list.push({
+    id,
+    label: String(label).trim(),
+    cadence,
+    vendorKeys,
+    createdAt: Date.now(),
+  })
   saveManualRecurringGroups(list)
-  // Stamp the tx with the group id.
-  const txs = getTransactions()
-  const set = new Set(txIds)
+  // Stamp every matching tx (selected + same-vendor past/future). Don't
+  // poach tx that already belong to another group.
   let n = 0
   txs.forEach(t => {
-    if (set.has(t.id)) {
-      t.recurringGroupId = id
-      // Clear any per-tx recurring flag — the group owns the cadence now.
+    if (t.recurringGroupId) return
+    const matches = selectedSet.has(t.id) ||
+      (vendorKeys.length > 0 && vendorKeys.includes(_normalizeVendor(t.vendor, t.amount)))
+    if (!matches) return
+    t.recurringGroupId = id
+    delete t.recurringFlag
+    n++
+  })
+  if (n > 0) DB.set('finTransactions', txs)
+  return { id, count: n, vendorKeys }
+}
+
+// Pulls in any un-grouped tx whose vendor key matches a group's vendorKeys.
+// Called whenever recurring is computed so newly imported tx slot in
+// without an explicit migration / import-time hook.
+function _reconcileManualGroups() {
+  const groups = getManualRecurringGroups().filter(g => Array.isArray(g.vendorKeys) && g.vendorKeys.length > 0)
+  if (groups.length === 0) return 0
+  const keyToGroup = {}
+  for (const g of groups) for (const k of g.vendorKeys) keyToGroup[k] = g.id
+  const txs = getTransactions()
+  let n = 0
+  for (const t of txs) {
+    if (t.recurringGroupId) continue
+    const k = _normalizeVendor(t.vendor, t.amount)
+    if (k && keyToGroup[k]) {
+      t.recurringGroupId = keyToGroup[k]
       delete t.recurringFlag
       n++
     }
-  })
+  }
   if (n > 0) DB.set('finTransactions', txs)
-  return { id, count: n }
+  return n
+}
+
+// One-time backfill for groups created before v1.16.0 (no vendorKeys field).
+// Derives the keys from the tx already stamped with each group's id, so
+// the auto-include behaviour starts working without forcing the user to
+// recreate their existing groups.
+function migrateManualGroupVendorKeys_v1() {
+  if (localStorage.getItem('migration_manual_group_vendor_keys_v1') === '1') return
+  const groups = getManualRecurringGroups()
+  if (groups.length === 0) {
+    localStorage.setItem('migration_manual_group_vendor_keys_v1', '1')
+    return
+  }
+  const txs = getTransactions()
+  let changed = false
+  for (const g of groups) {
+    if (Array.isArray(g.vendorKeys) && g.vendorKeys.length > 0) continue
+    const keys = new Set()
+    for (const t of txs) {
+      if (t.recurringGroupId !== g.id) continue
+      const k = _normalizeVendor(t.vendor, t.amount)
+      if (k) keys.add(k)
+    }
+    g.vendorKeys = [...keys]
+    changed = true
+  }
+  if (changed) saveManualRecurringGroups(groups)
+  localStorage.setItem('migration_manual_group_vendor_keys_v1', '1')
 }
 
 function unmergeManualRecurringGroup(groupId) {
@@ -313,7 +380,10 @@ function _getManualGroupRecurring() {
 
 // Unified recurring list (auto + manual flag + manual group). Manual entries
 // override auto ones with the same vendor key (user's explicit signal wins).
+// Reconciles manual groups first so newly-imported tx with a matching vendor
+// are absorbed before the auto pass sees them.
 function getAllRecurring() {
+  _reconcileManualGroups()
   const auto         = detectRecurring()
   const manualFlags  = _getManualFlagRecurring()
   const manualGroups = _getManualGroupRecurring()

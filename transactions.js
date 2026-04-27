@@ -335,7 +335,8 @@ function openMergeRecurringModal() {
       </select>
     </div>
     <div class="modal-row" style="font-size:.78rem;color:var(--text-muted)">
-      העסקאות שנבחרו ייעלמו ממסך העסקאות ויופיעו במסך ההוצאות/הכנסות הקבועות כפעולה מאוחדת. הן ימשיכו להיספר לצורך יתרה ו-P&L.
+      העסקאות יישארו במסך העסקאות עם חיווי קישור (🔗) ויוצגו במסך הקבועות כפעולה אחת מאוחדת.
+      כל עסקה קיימת או עתידית מאותם ספקים תצורף אוטומטית לקבוצה — אין צורך לאחד שוב בכל חודש.
     </div>`
   document.getElementById('mergeRecurringModal').classList.add('open')
 }

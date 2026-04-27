@@ -1,4 +1,4 @@
-const APP_VERSION = '1.15.1'
+const APP_VERSION = '1.16.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -545,6 +545,7 @@ document.addEventListener('DOMContentLoaded', () => {
   migrateOrphanedTransfers_v4()
   migrateBudgetType_v1()
   migrateBudgetMonthly_v2()
+  if (typeof migrateManualGroupVendorKeys_v1 === 'function') migrateManualGroupVendorKeys_v1()
   navigate('dashboard')
 
   const dz = document.getElementById('dropZone')
