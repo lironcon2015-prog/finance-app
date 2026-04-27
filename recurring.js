@@ -65,6 +65,16 @@ function _cadencePeriodKey(iso, cadence) {
 // then divides by the number of buckets that actually had data.
 // ignoreOutliers (user-controlled): removes buckets whose |sum| > 2× the
 // mean of all other buckets — excluded from BOTH numerator and denominator.
+//
+// Per-tx user overrides (set via the drill modal):
+// - t.recurringExcludeMode === 'period': tx is dropped entirely (no sum, no
+//   period registered for it). If it's the only tx of its period, the period
+//   leaves the denominator. If others remain, the period still counts via them.
+// - t.recurringExcludeMode === 'amount': tx still registers its period
+//   (denominator unchanged) but contributes 0 to the period sum.
+// - t.recurringPeriodOverride ('YYYY-MM-DD'): bucketing uses this date instead
+//   of the actual tx.date. Lets the user shift a paycheck that arrived early
+//   or late into its "real" month/quarter.
 function _avgPerCadencePeriod(txs, cadence, ignoreOutliers = false) {
   if (txs.length === 0) return { avg: 0, sum: 0, periods: 0, kept: [] }
   const now = new Date()
@@ -74,9 +84,14 @@ function _avgPerCadencePeriod(txs, cadence, ignoreOutliers = false) {
 
   const periodMap = {}
   for (const t of recent) {
-    const k = _cadencePeriodKey(t.date, cadence)
+    if (t.recurringExcludeMode === 'period') continue
+    const dateForPeriod = t.recurringPeriodOverride || t.date
+    const k = _cadencePeriodKey(dateForPeriod, cadence)
     if (!k) continue
-    periodMap[k] = (periodMap[k] || 0) + (t.amount || 0)
+    if (!(k in periodMap)) periodMap[k] = 0
+    if (t.recurringExcludeMode !== 'amount') {
+      periodMap[k] += (t.amount || 0)
+    }
   }
   let entries = Object.entries(periodMap)  // [[periodKey, periodSum], ...]
 
@@ -347,6 +362,39 @@ function toggleIgnoreOutliers(key) {
   if (_drillKey === key) _renderDrillModal()
 }
 function toggleIgnoreOutliersDrill() { if (_drillKey) toggleIgnoreOutliers(_drillKey) }
+
+function setRecurringTxExclude(txId, mode) {
+  const txs = getTransactions()
+  const t = txs.find(x => x.id === txId)
+  if (!t) return
+  if (mode === 'amount' || mode === 'period') t.recurringExcludeMode = mode
+  else delete t.recurringExcludeMode
+  DB.set('finTransactions', txs)
+  renderRecurring()
+  if (_drillKey) _renderDrillModal()
+}
+
+function setRecurringTxPeriodOverride(txId, ym) {
+  const txs = getTransactions()
+  const t = txs.find(x => x.id === txId)
+  if (!t) return
+  if (ym && /^\d{4}-\d{2}$/.test(ym)) t.recurringPeriodOverride = ym + '-01'
+  else delete t.recurringPeriodOverride
+  DB.set('finTransactions', txs)
+  renderRecurring()
+  if (_drillKey) _renderDrillModal()
+}
+
+// Human-readable label for a cadence period bucket. Used to show the user
+// which month/quarter a tx contributes to (especially after period override).
+function _formatPeriodLabel(iso, cadence) {
+  if (!iso) return ''
+  const [y, m] = iso.split('-').map(Number)
+  if (!y || !m) return iso
+  if (cadence === 'quarterly') return `Q${Math.floor((m-1)/3)+1} ${y}`
+  if (cadence === 'bimonthly') return `B${Math.floor((m-1)/2)+1} ${y}`
+  return `${String(m).padStart(2,'0')}/${y}`
+}
 
 function unmergeManualRecurringGroup(groupId) {
   const list = getManualRecurringGroups().filter(g => g.id !== groupId)
@@ -735,6 +783,8 @@ function _renderDrillModal() {
   }
   document.getElementById('drillTitle').textContent = `היסטוריית "${vendor}"`
 
+  const cadence = (getAllRecurring().find(r => r.key === _drillKey) || {}).cadence || 'monthly'
+
   const { start, end } = _getDrillBounds()
   const filtered = allTx
     .filter(t => t.date && t.date >= start && t.date <= end)
@@ -758,15 +808,32 @@ function _renderDrillModal() {
     </div>` : ''
 
   const rows = filtered.length === 0
-    ? `<tr><td colspan="4" style="text-align:center;padding:2rem;color:var(--text-muted)">אין עסקאות בתקופה</td></tr>`
+    ? `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted)">אין עסקאות בתקופה</td></tr>`
     : filtered.map(t => {
         const cat = getCategoryById(t.categoryId)
+        const mode = t.recurringExcludeMode || ''
+        const overrideYm = t.recurringPeriodOverride ? t.recurringPeriodOverride.slice(0,7) : ''
+        const effectiveDate = t.recurringPeriodOverride || t.date
+        const periodLabel = _formatPeriodLabel(effectiveDate, cadence)
+        const periodChanged = !!t.recurringPeriodOverride
+        const rowMuted = mode ? 'opacity:.55' : ''
+        const periodBadge = `<div style="font-size:.7rem;${periodChanged?'color:var(--accent)':'color:var(--text-muted)'};margin-top:.15rem">${periodChanged?'→ ':''}${periodLabel}</div>`
         return `
-          <tr>
-            <td>${formatDate(t.date)}</td>
+          <tr style="${rowMuted}">
+            <td>${formatDate(t.date)}${periodBadge}</td>
             <td style="font-weight:500">${resolveVendor(t.vendor, t.amount) || '—'}</td>
             <td>${cat ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon||''} ${cat.name}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
             <td class="${t.amount>0?'amount-inc':'amount-exp'}" style="font-weight:600">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
+            <td>
+              <input type="month" value="${overrideYm}" onchange="setRecurringTxPeriodOverride('${t.id}', this.value)" style="font-size:.8rem;padding:.2rem .35rem;width:8.5rem">
+            </td>
+            <td>
+              <select onchange="setRecurringTxExclude('${t.id}', this.value)" style="font-size:.8rem;padding:.2rem .35rem">
+                <option value="" ${mode===''?'selected':''}>נספר</option>
+                <option value="amount" ${mode==='amount'?'selected':''}>בלי סכום</option>
+                <option value="period" ${mode==='period'?'selected':''}>דלג</option>
+              </select>
+            </td>
           </tr>`
       }).join('')
 
@@ -792,7 +859,7 @@ function _renderDrillModal() {
     </div>
     <div style="overflow-x:auto;margin-top:1rem">
       <table class="data-table">
-        <thead><tr><th>תאריך</th><th>ספק</th><th>קטגוריה</th><th style="text-align:left">סכום</th></tr></thead>
+        <thead><tr><th>תאריך</th><th>ספק</th><th>קטגוריה</th><th style="text-align:left">סכום</th><th>תקופת שיוך</th><th>ספירה</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`
