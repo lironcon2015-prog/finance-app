@@ -74,14 +74,17 @@ async function driveBackup() {
   _showDriveStatus('מגבה…', false)
   try {
     const payload = JSON.stringify({
-      transactions: getTransactions(),
-      accounts:     getAccounts(),
-      categories:   getCategories(),
-      budgets:      getBudgets(),
-      rules:        getCategoryRules(),
-      templates:    getTemplates(),
-      aliases:      getVendorAliases(),
-      exportedAt:   new Date().toISOString(),
+      transactions:        getTransactions(),
+      accounts:            getAccounts(),
+      categories:          getCategories(),
+      budgets:             getBudgets(),
+      rules:               getCategoryRules(),
+      templates:           getTemplates(),
+      aliases:             getVendorAliases(),
+      recurringGroups:     DB.get('finManualRecurringGroups', []),
+      recurringHidden:     DB.get('finRecurringHidden', []),
+      recurringIgnoreOut:  DB.get('finRecurringIgnoreOutliers', []),
+      exportedAt:          new Date().toISOString(),
     }, null, 2)
 
     const existing = await _driveFindFile()
@@ -129,13 +132,16 @@ async function driveRestore() {
     const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`)
     if (!r.ok) throw new Error(await r.text())
     const data = await r.json()
-    if (data.transactions) DB.set('finTransactions',    data.transactions)
-    if (data.accounts)     DB.set('finAccounts',        data.accounts)
-    if (data.categories)   DB.set('finCategories',      data.categories)
-    if (data.budgets)      DB.set('finBudgets',         data.budgets)
-    if (data.rules)        DB.set('finCategoryRules',   data.rules)
-    if (data.templates)    DB.set('finImportTemplates', data.templates)
-    if (data.aliases)      DB.set('finVendorAliases',   data.aliases)
+    if (data.transactions)       DB.set('finTransactions',            data.transactions)
+    if (data.accounts)           DB.set('finAccounts',                data.accounts)
+    if (data.categories)         DB.set('finCategories',              data.categories)
+    if (data.budgets)            DB.set('finBudgets',                 data.budgets)
+    if (data.rules)              DB.set('finCategoryRules',           data.rules)
+    if (data.templates)          DB.set('finImportTemplates',         data.templates)
+    if (data.aliases)            DB.set('finVendorAliases',           data.aliases)
+    if (data.recurringGroups)    DB.set('finManualRecurringGroups',   data.recurringGroups)
+    if (data.recurringHidden)    DB.set('finRecurringHidden',         data.recurringHidden)
+    if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
     localStorage.setItem('driveBackupFileId', file.id)
     localStorage.setItem('driveBackupAt', new Date(file.modifiedTime).toISOString())
     _showDriveStatus('✅ שוחזר — מרענן…', false)

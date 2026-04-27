@@ -1,4 +1,4 @@
-const APP_VERSION = '1.16.1'
+const APP_VERSION = '1.16.2'
 
 // ===== STORAGE =====
 const DB = {
@@ -169,14 +169,17 @@ async function callGemini(apiKey, body) {
 // ===== EXPORT / IMPORT =====
 function exportData() {
   const data = {
-    transactions: getTransactions(),
-    accounts:     getAccounts(),
-    categories:   getCategories(),
-    budgets:      getBudgets(),
-    rules:        getCategoryRules(),
-    templates:    getTemplates(),
-    aliases:      getVendorAliases(),
-    exportedAt:   new Date().toISOString(),
+    transactions:        getTransactions(),
+    accounts:            getAccounts(),
+    categories:          getCategories(),
+    budgets:             getBudgets(),
+    rules:               getCategoryRules(),
+    templates:           getTemplates(),
+    aliases:             getVendorAliases(),
+    recurringGroups:     DB.get('finManualRecurringGroups', []),
+    recurringHidden:     DB.get('finRecurringHidden', []),
+    recurringIgnoreOut:  DB.get('finRecurringIgnoreOutliers', []),
+    exportedAt:          new Date().toISOString(),
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const a = document.createElement('a')
@@ -191,13 +194,16 @@ function importData(input) {
   reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result)
-      if (data.transactions) DB.set('finTransactions',     data.transactions)
-      if (data.accounts)     DB.set('finAccounts',         data.accounts)
-      if (data.categories)   DB.set('finCategories',       data.categories)
-      if (data.budgets)      DB.set('finBudgets',          data.budgets)
-      if (data.rules)        DB.set('finCategoryRules',    data.rules)
-      if (data.templates)    DB.set('finImportTemplates',  data.templates)
-      if (data.aliases)      DB.set('finVendorAliases',    data.aliases)
+      if (data.transactions)       DB.set('finTransactions',            data.transactions)
+      if (data.accounts)           DB.set('finAccounts',                data.accounts)
+      if (data.categories)         DB.set('finCategories',              data.categories)
+      if (data.budgets)            DB.set('finBudgets',                 data.budgets)
+      if (data.rules)              DB.set('finCategoryRules',           data.rules)
+      if (data.templates)          DB.set('finImportTemplates',         data.templates)
+      if (data.aliases)            DB.set('finVendorAliases',           data.aliases)
+      if (data.recurringGroups)    DB.set('finManualRecurringGroups',   data.recurringGroups)
+      if (data.recurringHidden)    DB.set('finRecurringHidden',         data.recurringHidden)
+      if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
       invalidatePLCache()
       invalidateSavingsCache()
       invalidateCapitalIncomeCache()

@@ -410,10 +410,41 @@ function _getManualGroupRecurring() {
 
 // Unified recurring list (auto + manual flag + manual group). Manual entries
 // override auto ones with the same vendor key (user's explicit signal wins).
+// When a manual group absorbs tx that previously fed an auto-detected entry,
+// the hidden key changes from the vendor string to 'mgroup:<id>'. This pass
+// migrates any stale vendor-key entries in finRecurringHidden to the current
+// group key so items that were hidden stay hidden after absorption.
+function _migrateHiddenRecurringKeys() {
+  const hidden = getHiddenRecurring()
+  if (hidden.size === 0) return
+  const groups = getManualRecurringGroups()
+  let changed = false
+  for (const g of groups) {
+    if (!Array.isArray(g.vendorKeys) || g.vendorKeys.length === 0) continue
+    const gKey = 'mgroup:' + g.id
+    for (const vk of g.vendorKeys) {
+      if (hidden.has(vk) && !hidden.has(gKey)) {
+        hidden.delete(vk)
+        hidden.add(gKey)
+        changed = true
+      }
+      // also handle mflag: prefix from a previous manual-flag hidden entry
+      const mfKey = 'mflag:' + vk
+      if (hidden.has(mfKey) && !hidden.has(gKey)) {
+        hidden.delete(mfKey)
+        hidden.add(gKey)
+        changed = true
+      }
+    }
+  }
+  if (changed) setHiddenRecurring(hidden)
+}
+
 // Reconciles manual groups first so newly-imported tx with a matching vendor
 // are absorbed before the auto pass sees them.
 function getAllRecurring() {
   _reconcileManualGroups()
+  _migrateHiddenRecurringKeys()
   const auto         = detectRecurring()
   const manualFlags  = _getManualFlagRecurring()
   const manualGroups = _getManualGroupRecurring()
