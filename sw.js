@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'finance-v1.13.0'
+const CACHE_VERSION = 'finance-v1.14.0'
 const ASSETS = [
   './',
   './index.html',
