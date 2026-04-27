@@ -1,6 +1,13 @@
 let _txPage = 0
 const TX_PAGE_SIZE = 40
 
+// Bulk-select mode: when on, each row gets a checkbox and a toolbar lets
+// the user merge them into a manual recurring group. Tx that already
+// belong to a manual group (`recurringGroupId`) are HIDDEN from the list
+// — they live only in the recurring screen as part of that group.
+let _txSelectMode = false
+let _txSelected   = new Set()
+
 // When viewing from a specific account, mirror-side transactions
 // (CC payments / transfers to savings) affect the account's balance
 // with the opposite sign. These helpers flip the perspective.
@@ -68,6 +75,8 @@ function _getFiltered() {
   const isUncat = t => !t.categoryId || !validCatIds.has(t.categoryId)
   return filterByEffectivePeriod(getTransactions(), period)
     .filter(t => {
+      // Tx absorbed into a manual recurring group are surfaced ONLY there.
+      if (t.recurringGroupId) return false
       if (type !== 'all') {
         if (type === 'uncategorized') { if (!isUncat(t)) return false }
         else if (t.type !== type) return false
@@ -127,13 +136,33 @@ function _drawTxTable() {
     categoryBalanceInfo = `<span style="color:${catBal>=0?'var(--income)':'var(--expense)'};font-weight:600">יתרת ${label}: ${formatCurrency(catBal)}</span>`
   }
 
+  // Recurring summary — monthly-equivalent of all non-hidden recurring entries.
+  // Surfaced here so the user sees the "fixed slice" of their flow alongside
+  // the period totals.
+  let recurringInfo = ''
+  if (typeof recurringMonthlyTotals === 'function') {
+    const rt = recurringMonthlyTotals()
+    if (rt.count > 0) {
+      const netCls = rt.net >= 0 ? 'net-pos' : 'net-neg'
+      recurringInfo = `<span title="חודשי שקול של כל הקבועות הלא־מוסתרות"
+        style="color:var(--text-muted)">קבועות חודשי:
+        <span class="income">+${formatCurrency(rt.income)}</span>
+        <span class="expense">-${formatCurrency(rt.expense)}</span>
+        <span class="${netCls}">${rt.net>=0?'+':''}${formatCurrency(rt.net)}</span></span>`
+    }
+  }
+
   document.getElementById('txSummary').innerHTML = `
     <span>${filtered.length} עסקאות</span>
     <span class="income">+${formatCurrency(totalInc)}</span>
     <span class="expense">-${formatCurrency(totalExp)}</span>
     <span class="${net>=0?'net-pos':'net-neg'}">נטו: ${formatCurrency(net)}</span>
     ${categoryBalanceInfo}
-    ${runningBalanceInfo}`
+    ${runningBalanceInfo}
+    ${recurringInfo}`
+
+  // Select-mode toolbar — toggling enables checkbox column + merge action.
+  _renderTxSelectToolbar(filtered.length)
 
   const page = filtered.slice(_txPage * TX_PAGE_SIZE, (_txPage+1) * TX_PAGE_SIZE)
   const totalPages = Math.ceil(filtered.length / TX_PAGE_SIZE)
@@ -161,16 +190,20 @@ function _drawTxTable() {
     }
   }
 
+  const selectColHead = _txSelectMode ? '<th style="width:32px"><input type="checkbox" id="txSelectAll" onclick="toggleTxSelectAll(this.checked)"></th>' : ''
+  const colspan = (showRunningBalance ? 9 : 8) + (_txSelectMode ? 1 : 0)
+
   document.getElementById('txTable').innerHTML = `
     <table class="data-table">
       <thead><tr>
+        ${selectColHead}
         <th>תאריך</th><th>חודש חיוב</th><th>ספק</th><th>קטגוריה</th>
         <th>סכום</th><th>סוג</th>
         ${showRunningBalance ? '<th>יתרה</th>' : ''}
         <th>הערות</th><th></th>
       </tr></thead>
       <tbody>
-      ${page.length === 0 ? `<tr><td colspan="${showRunningBalance?9:8}" style="text-align:center;padding:3rem;color:var(--text-muted)">אין עסקאות</td></tr>` :
+      ${page.length === 0 ? `<tr><td colspan="${colspan}" style="text-align:center;padding:3rem;color:var(--text-muted)">אין עסקאות</td></tr>` :
         page.map(tx => {
           const cat = getCategoryById(tx.categoryId)
           const catBadge = cat
@@ -191,10 +224,17 @@ function _drawTxTable() {
           const effMonthDisplay = effMonth ? effMonth.slice(5) + '/' + effMonth.slice(0,4) : '—'
           const effMonthMismatch = effMonth && tx.date && effMonth !== tx.date.slice(0,7)
           const effCell = `<td style="font-size:.8rem;color:${effMonthMismatch?'var(--accent)':'var(--text-muted)'}">${effMonthDisplay}</td>`
+          const recurringFlagBadge = tx.recurringFlag
+            ? `<span class="type-badge type-refund" title="מסומן כקבוע (${recurringCadenceLabel(tx.recurringFlag)})" style="margin-inline-start:.3rem">🔁 ${recurringCadenceLabel(tx.recurringFlag)}</span>`
+            : ''
+          const selectCell = _txSelectMode
+            ? `<td onclick="event.stopPropagation()"><input type="checkbox" ${_txSelected.has(tx.id)?'checked':''} onclick="toggleTxSelected('${tx.id}')"></td>`
+            : ''
           return `<tr ${isNonCounted||isMirror?'class="tx-noncounted"':''}>
+            ${selectCell}
             <td>${formatDate(tx.date)}</td>
             ${effCell}
-            <td><div style="font-weight:500">${resolveVendor(tx.vendor, tx.amount)||'—'}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
+            <td><div style="font-weight:500">${resolveVendor(tx.vendor, tx.amount)||'—'}${recurringFlagBadge}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
             <td>${catBadge}</td>
             <td class="${amountCls}">${dispAmt>0?'+':''}${formatCurrency(dispAmt)}</td>
             <td>${typeBadge}</td>
@@ -222,4 +262,87 @@ function filterTxByCategory(catId) {
   sel.value = catId
   _txPage = 0
   _drawTxTable()
+}
+
+// ===== BULK-SELECT + MERGE-TO-RECURRING =====
+function toggleTxSelectMode() {
+  _txSelectMode = !_txSelectMode
+  if (!_txSelectMode) _txSelected.clear()
+  _drawTxTable()
+}
+
+function toggleTxSelected(id) {
+  if (_txSelected.has(id)) _txSelected.delete(id)
+  else _txSelected.add(id)
+  _renderTxSelectToolbar()
+}
+
+function toggleTxSelectAll(checked) {
+  const filtered = _getFiltered()
+  const page = filtered.slice(_txPage * TX_PAGE_SIZE, (_txPage+1) * TX_PAGE_SIZE)
+  page.forEach(t => { if (checked) _txSelected.add(t.id); else _txSelected.delete(t.id) })
+  _drawTxTable()
+}
+
+function _renderTxSelectToolbar(_filteredCount) {
+  const el = document.getElementById('txSelectToolbar')
+  if (!el) return
+  if (!_txSelectMode) {
+    el.innerHTML = `
+      <button class="btn-ghost" onclick="toggleTxSelectMode()" style="font-size:.85rem">📦 בחר לקיבוץ</button>`
+    return
+  }
+  const n = _txSelected.size
+  el.innerHTML = `
+    <button class="btn-ghost" onclick="toggleTxSelectMode()" style="font-size:.85rem">בטל בחירה</button>
+    <span style="color:var(--text-muted);font-size:.85rem">${n} נבחרו</span>
+    <button class="btn-primary" ${n<2?'disabled':''} onclick="openMergeRecurringModal()" style="font-size:.85rem">אחד לקבועה</button>`
+}
+
+function openMergeRecurringModal() {
+  if (_txSelected.size < 2) { alert('בחר לפחות שתי עסקאות לאיחוד'); return }
+  const ids = [...(_txSelected)]
+  const txs = getTransactions().filter(t => ids.includes(t.id))
+  const defaultLabel = resolveVendor(txs[0]?.vendor || '', txs[0]?.amount) || txs[0]?.vendor || 'קבועה ידנית'
+  const sumAmount = txs.reduce((s,t) => s + (t.amount || 0), 0)
+  const allSameSign = txs.every(t => (t.amount || 0) * (txs[0].amount || 0) >= 0)
+
+  document.getElementById('mergeRecurringBody').innerHTML = `
+    <div class="modal-row" style="font-size:.85rem;color:var(--text-muted)">
+      ${ids.length} עסקאות · סך ${formatCurrency(sumAmount)} ${allSameSign?'':'<span style="color:var(--expense)">⚠ סימני סכום מעורבים</span>'}
+    </div>
+    <div class="modal-row">
+      <label class="form-label">תווית הקבוצה</label>
+      <input id="mergeLabel" value="${defaultLabel.replace(/"/g, '&quot;')}">
+    </div>
+    <div class="modal-row">
+      <label class="form-label">תדירות</label>
+      <select id="mergeCadence">
+        <option value="monthly">חודשי</option>
+        <option value="bimonthly">דו-חודשי</option>
+        <option value="quarterly">רבעוני</option>
+      </select>
+    </div>
+    <div class="modal-row" style="font-size:.78rem;color:var(--text-muted)">
+      העסקאות שנבחרו ייעלמו ממסך העסקאות ויופיעו במסך ההוצאות/הכנסות הקבועות כפעולה מאוחדת. הן ימשיכו להיספר לצורך יתרה ו-P&L.
+    </div>`
+  document.getElementById('mergeRecurringModal').classList.add('open')
+}
+
+function closeMergeRecurringModal() {
+  document.getElementById('mergeRecurringModal').classList.remove('open')
+}
+
+function confirmMergeRecurring() {
+  const label = document.getElementById('mergeLabel').value.trim()
+  const cadence = document.getElementById('mergeCadence').value
+  if (!label) { alert('יש להזין תווית לקבוצה'); return }
+  if (_txSelected.size < 2) { alert('בחר לפחות שתי עסקאות'); return }
+  const res = createManualRecurringGroup({ label, cadence, txIds: [..._txSelected] })
+  if (!res) { alert('נכשל ביצירת הקבוצה'); return }
+  _txSelected.clear()
+  _txSelectMode = false
+  closeMergeRecurringModal()
+  _drawTxTable()
+  alert(`נוצרה קבוצה קבועה "${label}" עם ${res.count} עסקאות`)
 }

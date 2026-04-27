@@ -1,4 +1,4 @@
-const APP_VERSION = '1.14.0'
+const APP_VERSION = '1.15.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -249,6 +249,16 @@ function openEditModal(id) {
     <div class="modal-row" id="editDestRow" style="display:${showDest}"><label class="form-label">חשבון יעד (להעברה)</label><select id="editDestAccount"><option value="">—</option>${destAccOptions}</select></div>
     <div class="modal-row"><label class="form-label">קטגוריה</label><select id="editCategory"><option value="">ללא קטגוריה</option>${catOptions}</select></div>
     <div class="modal-row" style="margin-top:-.5rem"><button type="button" class="btn-ghost" style="font-size:.85rem;padding:.45rem .8rem" onclick="applyCategoryToAllSimilar()">החל קטגוריה על כל העסקאות עם אותו ספק (קדימה ואחורה)</button></div>
+    <div class="modal-row">
+      <label class="form-label">סימון כקבוע</label>
+      <select id="editRecurringFlag">
+        <option value=""           ${!tx.recurringFlag ? 'selected' : ''}>— ללא —</option>
+        <option value="monthly"    ${tx.recurringFlag==='monthly'   ?'selected':''}>חודשי</option>
+        <option value="bimonthly"  ${tx.recurringFlag==='bimonthly' ?'selected':''}>דו-חודשי</option>
+        <option value="quarterly"  ${tx.recurringFlag==='quarterly' ?'selected':''}>רבעוני</option>
+      </select>
+      <div style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem">סימון מעלה את העסקה (ואת שאר העסקאות מאותו ספק) למסך ההוצאות/הכנסות הקבועות גם כשהזיהוי האוטומטי לא תופס אותן.</div>
+    </div>
     <div class="modal-row"><label class="form-label">הערות</label><input id="editNotes" value="${tx.notes || ''}"></div>
   `
   document.getElementById('editModal').classList.add('open')
@@ -264,8 +274,9 @@ function saveEditModal() {
   const newAmount = parseFloat(document.getElementById('editAmount').value)
   const newType = document.getElementById('editType').value
   const destId = document.getElementById('editDestAccount').value
+  const newRecurringFlag = document.getElementById('editRecurringFlag')?.value || ''
   if (_editIsNew) {
-    txs.push({
+    const fresh = {
       id: _editId,
       accountId: document.getElementById('editAccount').value,
       date: document.getElementById('editDate').value,
@@ -278,7 +289,9 @@ function saveEditModal() {
       transferAccountId: newType === 'transfer' ? destId : undefined,
       ccPaymentForAccountId: undefined,
       createdAt: Date.now(),
-    })
+    }
+    if (newRecurringFlag) fresh.recurringFlag = newRecurringFlag
+    txs.push(fresh)
   } else {
     const idx = txs.findIndex(t => t.id === _editId)
     if (idx < 0) return
@@ -289,6 +302,8 @@ function saveEditModal() {
     txs[idx].type       = newType
     txs[idx].categoryId = document.getElementById('editCategory').value
     txs[idx].notes      = document.getElementById('editNotes').value
+    if (newRecurringFlag) txs[idx].recurringFlag = newRecurringFlag
+    else delete txs[idx].recurringFlag
     if (newType === 'transfer') {
       txs[idx].transferAccountId = destId || undefined
       // keep existing ccPaymentForAccountId if destination matches

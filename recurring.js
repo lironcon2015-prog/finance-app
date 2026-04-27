@@ -14,6 +14,39 @@ function _normalizeVendor(v, amount) {
     : String(resolved || '').toLowerCase().trim()
 }
 
+// Cadence dictionary used by both auto-detection and manual flags/groups.
+// Days are notional (30 / 60 / 90) — used both for "next expected" and for
+// converting per-occurrence avg into monthly-equivalent (smoothed).
+const RECURRING_CADENCES = {
+  monthly:    { days: 30,  label: 'חודשי' },
+  bimonthly:  { days: 60,  label: 'דו-חודשי' },
+  quarterly:  { days: 90,  label: 'רבעוני' },
+  weekly:     { days: 7,   label: 'שבועי' },
+  biweekly:   { days: 14,  label: 'דו-שבועי' },
+  annual:     { days: 365, label: 'שנתי' },
+}
+
+function recurringCadenceLabel(c) { return RECURRING_CADENCES[c]?.label || c }
+function recurringCadenceDays(c)  { return RECURRING_CADENCES[c]?.days  || 30 }
+
+function _addDays(iso, days) {
+  if (!iso) return ''
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + days)
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`
+}
+
+// Drops outliers whose |amount| exceeds 2 × mean(|amounts|) — i.e. anything
+// >100% above the average. Returns the original array if it has fewer than
+// 3 items (not enough signal to call something an outlier).
+function _filterAmountOutliers(txs) {
+  if (txs.length < 3) return txs
+  const mean = txs.reduce((s,t)=>s+Math.abs(t.amount),0) / txs.length
+  const limit = mean * 2
+  const kept = txs.filter(t => Math.abs(t.amount) <= limit)
+  return kept.length >= 3 ? kept : txs
+}
+
 function _daysBetween(a, b) {
   const da = new Date(a), db = new Date(b)
   return Math.round((db - da) / (1000 * 60 * 60 * 24))
@@ -35,11 +68,13 @@ function detectRecurring() {
   // Exclude transfers and bank-level CC payment aggregates — the real detail
   // lives on the CC account (individual purchases), which IS included. Also
   // exclude linked savings/investment deposits (they're a single structural
-  // flow to a savings bucket, not a recurring "bill").
+  // flow to a savings bucket, not a recurring "bill"). Tx that are part of
+  // a manual merged group are excluded — they belong to that group only.
   const txs = getTransactions().filter(t => {
     if (t.type === 'transfer') return false
     if (t.ccPaymentForAccountId) return false
     if (t.transferAccountId) return false
+    if (t.recurringGroupId) return false
     return true
   })
   const groups = {}
@@ -50,7 +85,12 @@ function detectRecurring() {
     groups[key].push(t)
   })
   const out = []
-  for (const [key, list] of Object.entries(groups)) {
+  for (const [key, rawList] of Object.entries(groups)) {
+    if (rawList.length < 3) continue
+    // Drop amount-outliers (>100% above mean) — they distort the cadence
+    // gap calculation and pull the average around. Only kept when the
+    // remainder still has ≥3 occurrences.
+    const list = _filterAmountOutliers(rawList)
     if (list.length < 3) continue
     // sort by date asc
     list.sort((a,b) => (a.date||'').localeCompare(b.date||''))
@@ -79,38 +119,197 @@ function detectRecurring() {
     const avgAmount = filtered.reduce((s,t)=>s+t.amount,0) / filtered.length
     out.push({
       key,
+      sourceKey: key,
       vendor: resolveVendor(filtered[filtered.length-1].vendor, filtered[filtered.length-1].amount),
       cadence: cadence.cadence,
       cadenceLabel: cadence.label,
       cadenceDays: cadence.days,
       avgAmount,
+      // Monthly-equivalent: bimonthly /2, quarterly /3, weekly ×4.33, etc.
+      // Used in summaries and forecast so different cadences sum apples to apples.
+      smoothedMonthly: avgAmount * (30 / cadence.days),
       lastSeen: last.date,
       nextExpected,
       occurrences: filtered.length,
       accountId: last.accountId,
       categoryId: last.categoryId,
+      source: 'auto',
     })
   }
-  return out.sort((a,b) => Math.abs(b.avgAmount) - Math.abs(a.avgAmount))
+  return out
 }
 
-function getCachedRecurring() {
-  try {
-    const raw = localStorage.getItem('finRecurring')
-    if (!raw) return null
-    const obj = JSON.parse(raw)
-    if (!obj.generatedAt || Date.now() - obj.generatedAt > 24 * 60 * 60 * 1000) return null
-    return obj.items
-  } catch { return null }
+// ===== MANUAL: per-tx recurringFlag (acts at the vendor level) =====
+// User flags one tx with 'monthly'/'bimonthly'/'quarterly'. We treat every
+// other tx of the same vendor key as part of the same recurring entry.
+// If multiple flags exist for the same vendor, the latest-dated tx wins.
+// Outlier filter (|amount| > 2×mean) is applied before averaging.
+function _getManualFlagRecurring() {
+  const all = getTransactions()
+  const flagByKey = {}
+  for (const t of all) {
+    if (!t.recurringFlag) continue
+    if (t.recurringGroupId) continue
+    const key = _normalizeVendor(t.vendor, t.amount)
+    if (!key) continue
+    const cur = flagByKey[key]
+    if (!cur || (t.date || '') > (cur.date || '')) {
+      flagByKey[key] = { cadence: t.recurringFlag, date: t.date, ref: t }
+    }
+  }
+  const out = []
+  for (const [key, info] of Object.entries(flagByKey)) {
+    const same = all.filter(t =>
+      !t.recurringGroupId &&
+      t.type !== 'transfer' &&
+      !t.ccPaymentForAccountId &&
+      _normalizeVendor(t.vendor, t.amount) === key
+    )
+    if (same.length === 0) continue
+    const sorted = [...same].sort((a,b) => (a.date||'').localeCompare(b.date||''))
+    const last = sorted[sorted.length-1]
+    const kept = _filterAmountOutliers(same)
+    const avg = kept.reduce((s,t)=>s+t.amount,0) / kept.length
+    const cad = RECURRING_CADENCES[info.cadence] || RECURRING_CADENCES.monthly
+    out.push({
+      key: 'mflag:' + key,
+      sourceKey: key,
+      vendor: resolveVendor(last.vendor, last.amount),
+      cadence: info.cadence,
+      cadenceLabel: cad.label,
+      cadenceDays: cad.days,
+      avgAmount: avg,
+      smoothedMonthly: avg * (30 / cad.days),
+      lastSeen: last.date,
+      nextExpected: _addDays(last.date, cad.days),
+      occurrences: same.length,
+      accountId: last.accountId,
+      categoryId: last.categoryId,
+      source: 'manual-flag',
+    })
+  }
+  return out
 }
 
-function refreshRecurring() {
-  const items = detectRecurring()
-  localStorage.setItem('finRecurring', JSON.stringify({ generatedAt: Date.now(), items }))
-  return items
+// ===== MANUAL: merged groups =====
+// User selects N arbitrary tx in the tx screen → groups them into one labeled
+// recurring entry. Each tx gets `recurringGroupId = group.id` and is hidden
+// from the tx list (still counted in P&L / balance — same row, different view).
+function getManualRecurringGroups() { return DB.get('finManualRecurringGroups', []) }
+function saveManualRecurringGroups(list) { DB.set('finManualRecurringGroups', list) }
+
+function createManualRecurringGroup({ label, cadence, txIds }) {
+  if (!label || !cadence || !Array.isArray(txIds) || txIds.length === 0) return null
+  if (!RECURRING_CADENCES[cadence]) return null
+  const id = genId()
+  const list = getManualRecurringGroups()
+  list.push({ id, label: String(label).trim(), cadence, createdAt: Date.now() })
+  saveManualRecurringGroups(list)
+  // Stamp the tx with the group id.
+  const txs = getTransactions()
+  const set = new Set(txIds)
+  let n = 0
+  txs.forEach(t => {
+    if (set.has(t.id)) {
+      t.recurringGroupId = id
+      // Clear any per-tx recurring flag — the group owns the cadence now.
+      delete t.recurringFlag
+      n++
+    }
+  })
+  if (n > 0) DB.set('finTransactions', txs)
+  return { id, count: n }
 }
 
-function getRecurring() { return getCachedRecurring() || refreshRecurring() }
+function unmergeManualRecurringGroup(groupId) {
+  const list = getManualRecurringGroups().filter(g => g.id !== groupId)
+  saveManualRecurringGroups(list)
+  const txs = getTransactions()
+  let n = 0
+  txs.forEach(t => {
+    if (t.recurringGroupId === groupId) { delete t.recurringGroupId; n++ }
+  })
+  if (n > 0) DB.set('finTransactions', txs)
+  return n
+}
+
+function clearRecurringFlagForVendorKey(vendorKey) {
+  const txs = getTransactions()
+  let n = 0
+  txs.forEach(t => {
+    if (t.recurringFlag && _normalizeVendor(t.vendor, t.amount) === vendorKey) {
+      delete t.recurringFlag
+      n++
+    }
+  })
+  if (n > 0) DB.set('finTransactions', txs)
+  return n
+}
+
+function _getManualGroupRecurring() {
+  const groups = getManualRecurringGroups()
+  if (groups.length === 0) return []
+  const all = getTransactions()
+  const out = []
+  for (const g of groups) {
+    const txs = all.filter(t => t.recurringGroupId === g.id)
+    if (txs.length === 0) continue
+    const sorted = [...txs].sort((a,b) => (a.date||'').localeCompare(b.date||''))
+    const last = sorted[sorted.length-1]
+    const kept = _filterAmountOutliers(txs)
+    const avg = kept.reduce((s,t)=>s+t.amount,0) / kept.length
+    const cad = RECURRING_CADENCES[g.cadence] || RECURRING_CADENCES.monthly
+    out.push({
+      key: 'mgroup:' + g.id,
+      groupId: g.id,
+      vendor: g.label,
+      cadence: g.cadence,
+      cadenceLabel: cad.label,
+      cadenceDays: cad.days,
+      avgAmount: avg,
+      smoothedMonthly: avg * (30 / cad.days),
+      lastSeen: last.date,
+      nextExpected: _addDays(last.date, cad.days),
+      occurrences: txs.length,
+      accountId: last.accountId,
+      categoryId: last.categoryId,
+      source: 'manual-group',
+    })
+  }
+  return out
+}
+
+// Unified recurring list (auto + manual flag + manual group). Manual entries
+// override auto ones with the same vendor key (user's explicit signal wins).
+function getAllRecurring() {
+  const auto         = detectRecurring()
+  const manualFlags  = _getManualFlagRecurring()
+  const manualGroups = _getManualGroupRecurring()
+  const overrideKeys = new Set(manualFlags.map(m => m.sourceKey))
+  const autoKept = auto.filter(a => !overrideKeys.has(a.sourceKey))
+  return [...autoKept, ...manualFlags, ...manualGroups]
+    .sort((a,b) => Math.abs(b.smoothedMonthly) - Math.abs(a.smoothedMonthly))
+}
+
+// Monthly-equivalent income/expense/net of NON-HIDDEN recurring entries.
+// Used by dashboard / analysis / recurring-screen summaries.
+function recurringMonthlyTotals() {
+  const items = getAllRecurring()
+  const hidden = getHiddenRecurring()
+  let income = 0, expense = 0
+  for (const r of items) {
+    if (hidden.has(r.key)) continue
+    if (r.smoothedMonthly > 0) income += r.smoothedMonthly
+    else expense += Math.abs(r.smoothedMonthly)
+  }
+  return { income, expense, net: income - expense, count: items.filter(r => !hidden.has(r.key)).length }
+}
+
+// Unified recurring list. Recomputed each call (linear in tx count, fast
+// enough); manual flags / merges need to reflect immediately so the cache
+// that detectRecurring used to keep is no longer worth it.
+function getRecurring() { return getAllRecurring() }
+function refreshRecurring() { return getAllRecurring() }
 
 // ===== CASH FLOW FORECAST =====
 // Projects next N months based on: recurring + rolling 3-month avg of non-recurring counted tx
@@ -129,11 +328,12 @@ function forecastCashFlow(monthsAhead = 3) {
   const avgMonthlyIncome = sumIncome(recent) / 3
   const avgMonthlyExpense = sumExpenses(recent) / 3
 
-  // projected recurring per month
-  const recurringMonthlyIncome = recurring.filter(r => r.avgAmount > 0)
-    .reduce((s,r) => s + r.avgAmount * (30 / r.cadenceDays), 0)
-  const recurringMonthlyExpense = recurring.filter(r => r.avgAmount < 0)
-    .reduce((s,r) => s + Math.abs(r.avgAmount) * (30 / r.cadenceDays), 0)
+  // projected recurring per month — use precomputed smoothedMonthly so
+  // each entry is already a monthly-equivalent regardless of cadence.
+  const recurringMonthlyIncome = recurring.filter(r => r.smoothedMonthly > 0)
+    .reduce((s,r) => s + r.smoothedMonthly, 0)
+  const recurringMonthlyExpense = recurring.filter(r => r.smoothedMonthly < 0)
+    .reduce((s,r) => s + Math.abs(r.smoothedMonthly), 0)
 
   const projectedIncome = avgMonthlyIncome + recurringMonthlyIncome
   const projectedExpense = avgMonthlyExpense + recurringMonthlyExpense
@@ -170,13 +370,13 @@ let _recKeyMap = {}
 
 // ===== RECURRING SCREEN =====
 function renderRecurring() {
-  const items = refreshRecurring()
+  const items = getAllRecurring()
   const container = document.getElementById('recurringList')
   if (!container) return
 
   const hidden = getHiddenRecurring()
-  const expenseItems = items.filter(r => r.avgAmount < 0)
-  const incomeItems  = items.filter(r => r.avgAmount > 0)
+  const expenseItems = items.filter(r => r.smoothedMonthly < 0)
+  const incomeItems  = items.filter(r => r.smoothedMonthly > 0)
   const bucket = _recFlowMode === 'income' ? incomeItems : expenseItems
 
   const visible    = bucket.filter(r => !hidden.has(r.key))
@@ -186,6 +386,24 @@ function renderRecurring() {
   _recKeyMap = {}
   items.forEach((r, i) => { _recKeyMap['k' + i] = r.key })
   const idxOf = r => Object.keys(_recKeyMap).find(k => _recKeyMap[k] === r.key)
+
+  // Top summary — monthly-equivalent of all non-hidden recurring entries.
+  const totals = recurringMonthlyTotals()
+  const summary = `
+    <div class="recurring-summary">
+      <div class="recurring-summary-card">
+        <span class="recurring-summary-label">הוצאות קבועות (חודשי שקול)</span>
+        <span class="recurring-summary-val expense-color">-${formatCurrency(totals.expense)}</span>
+      </div>
+      <div class="recurring-summary-card">
+        <span class="recurring-summary-label">הכנסות קבועות (חודשי שקול)</span>
+        <span class="recurring-summary-val income-color">+${formatCurrency(totals.income)}</span>
+      </div>
+      <div class="recurring-summary-card">
+        <span class="recurring-summary-label">נטו חודשי שקול</span>
+        <span class="recurring-summary-val ${totals.net>=0?'income-color':'expense-color'}">${totals.net>=0?'+':''}${formatCurrency(totals.net)}</span>
+      </div>
+    </div>`
 
   const modeLabel = _recFlowMode === 'income' ? 'הכנסות' : 'הוצאות'
   const toggle = `
@@ -201,19 +419,36 @@ function renderRecurring() {
     </div>`
 
   if (items.length === 0) {
-    container.innerHTML = toggle +
-      '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:3rem">לא זוהו הוצאות/הכנסות קבועות. נדרשות לפחות 3 עסקאות חוזרות לאותו ספק.</p>'
+    container.innerHTML = summary + toggle +
+      '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:3rem">לא זוהו הוצאות/הכנסות קבועות. נדרשות לפחות 3 עסקאות חוזרות לאותו ספק, או סמן עסקה ידנית.</p>'
     return
   }
 
   const buildRow = (r, isHidden = false) => {
     const idx = idxOf(r)
-    const amountCls = r.avgAmount > 0 ? 'amount-inc' : 'amount-exp'
+    const amountCls = r.smoothedMonthly > 0 ? 'amount-inc' : 'amount-exp'
+    const sourceBadge = r.source === 'manual-group'
+      ? '<span class="type-badge type-refund" title="קבוצה ידנית מאוחדת">📦 ידנית</span>'
+      : r.source === 'manual-flag'
+      ? '<span class="type-badge type-refund" title="סומן ידנית">✋ ידנית</span>'
+      : ''
+    // Smoothed (monthly-equivalent) is the primary number; show the
+    // raw per-occurrence amount underneath when the cadence isn't monthly.
+    const showSmoothNote = r.cadenceDays !== 30
+    const smoothNote = showSmoothNote
+      ? `<div style="font-size:.7rem;color:var(--text-muted);margin-top:.15rem">${r.avgAmount>0?'+':''}${formatCurrency(r.avgAmount)} ל${r.cadenceLabel}</div>`
+      : ''
+    // Manual entries get a tailored secondary action (unmerge / clear flag).
+    const manualAction = r.source === 'manual-group'
+      ? `<button class="btn-ghost" style="font-size:.7rem;padding:.25rem .55rem;margin-inline-start:.3rem" onclick="event.stopPropagation();unmergeManualRecurringByIdx('${idx}')" title="פרק את הקבוצה">פרק</button>`
+      : r.source === 'manual-flag'
+      ? `<button class="btn-ghost" style="font-size:.7rem;padding:.25rem .55rem;margin-inline-start:.3rem" onclick="event.stopPropagation();clearRecurringFlagByIdx('${idx}')" title="הסר סימון ידני">בטל סימון</button>`
+      : ''
     return `
       <tr class="recurring-row ${isHidden?'recurring-row-hidden':''}" onclick="openRecurringDrillByIdx('${idx}')">
-        <td style="font-weight:500">${r.vendor}</td>
+        <td style="font-weight:500">${r.vendor} ${sourceBadge}</td>
         <td><span class="type-badge type-income">${r.cadenceLabel}</span></td>
-        <td class="${amountCls}">${r.avgAmount>0?'+':''}${formatCurrency(r.avgAmount)}</td>
+        <td class="${amountCls}">${r.smoothedMonthly>0?'+':''}${formatCurrency(r.smoothedMonthly)}${smoothNote}</td>
         <td>${formatDate(r.lastSeen)}</td>
         <td>${formatDate(r.nextExpected)}</td>
         <td>${r.occurrences}</td>
@@ -221,6 +456,7 @@ function renderRecurring() {
           ${isHidden
             ? `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="unhideRecurringByIdx('${idx}')">שחזר</button>`
             : `<button class="btn-ghost" style="font-size:.75rem;padding:.3rem .6rem" onclick="hideRecurringByIdx('${idx}')">הסתר</button>`}
+          ${manualAction}
         </td>
       </tr>`
   }
@@ -229,7 +465,7 @@ function renderRecurring() {
     ? `<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:2rem">אין ${modeLabel} קבועות${bucket.length>0?' (כולן מוסתרות)':''}.</p>`
     : `<table class="data-table recurring-table">
         <thead><tr>
-          <th>ספק</th><th>תדירות</th><th>סכום ממוצע</th>
+          <th>ספק</th><th>תדירות</th><th>חודשי שקול</th>
           <th>מופע אחרון</th><th>מופע הבא</th><th>מופעים</th><th></th>
         </tr></thead>
         <tbody>${visible.map(r => buildRow(r, false)).join('')}</tbody>
@@ -239,14 +475,14 @@ function renderRecurring() {
     ? `<div class="card-title" style="margin-top:1.5rem">מוסתרות (${hiddenList.length})</div>
        <table class="data-table recurring-table">
         <thead><tr>
-          <th>ספק</th><th>תדירות</th><th>סכום ממוצע</th>
+          <th>ספק</th><th>תדירות</th><th>חודשי שקול</th>
           <th>מופע אחרון</th><th>מופע הבא</th><th>מופעים</th><th></th>
         </tr></thead>
         <tbody>${hiddenList.map(r => buildRow(r, true)).join('')}</tbody>
        </table>`
     : ''
 
-  container.innerHTML = toggle + toolbar + visibleTable + hiddenBlock
+  container.innerHTML = summary + toggle + toolbar + visibleTable + hiddenBlock
 }
 
 // Thin wrappers that resolve an idx→key via _recKeyMap — avoids escaping Hebrew
@@ -254,6 +490,24 @@ function renderRecurring() {
 function hideRecurringByIdx(idx)   { const k = _recKeyMap[idx]; if (k) hideRecurring(k) }
 function unhideRecurringByIdx(idx) { const k = _recKeyMap[idx]; if (k) unhideRecurring(k) }
 function openRecurringDrillByIdx(idx) { const k = _recKeyMap[idx]; if (k) openRecurringDrill(k) }
+
+function unmergeManualRecurringByIdx(idx) {
+  const k = _recKeyMap[idx]
+  if (!k || !k.startsWith('mgroup:')) return
+  const groupId = k.slice('mgroup:'.length)
+  if (!confirm('לפרק את הקבוצה? העסקאות יחזרו להופיע ברשימת העסקאות הרגילה.')) return
+  unmergeManualRecurringGroup(groupId)
+  renderRecurring()
+}
+
+function clearRecurringFlagByIdx(idx) {
+  const k = _recKeyMap[idx]
+  if (!k || !k.startsWith('mflag:')) return
+  const vendorKey = k.slice('mflag:'.length)
+  if (!confirm('להסיר את הסימון הידני? אם הספק עדיין חוזר באופן קבוע, הוא ימשיך להופיע מזיהוי אוטומטי.')) return
+  clearRecurringFlagForVendorKey(vendorKey)
+  renderRecurring()
+}
 
 // ===== DRILL-DOWN =====
 let _drillKey = null
@@ -296,8 +550,26 @@ function applyDrillCustom() {
 
 function _renderDrillModal() {
   if (!_drillKey) return
-  const allTx = getTransactions().filter(t => _normalizeVendor(t.vendor, t.amount) === _drillKey)
-  const vendor = (allTx[0] && resolveVendor(allTx[0].vendor, allTx[0].amount)) || _drillKey
+  // Drill key encoding: 'mgroup:<id>' (manual merge), 'mflag:<vendorKey>'
+  // (manual flag), or the bare vendor key for an auto-detected entry.
+  let allTx, vendor
+  if (_drillKey.startsWith('mgroup:')) {
+    const gid = _drillKey.slice('mgroup:'.length)
+    allTx = getTransactions().filter(t => t.recurringGroupId === gid)
+    const g = getManualRecurringGroups().find(g => g.id === gid)
+    vendor = g?.label || gid
+  } else if (_drillKey.startsWith('mflag:')) {
+    const vk = _drillKey.slice('mflag:'.length)
+    allTx = getTransactions().filter(t =>
+      !t.recurringGroupId && _normalizeVendor(t.vendor, t.amount) === vk
+    )
+    vendor = (allTx[0] && resolveVendor(allTx[0].vendor, allTx[0].amount)) || vk
+  } else {
+    allTx = getTransactions().filter(t =>
+      !t.recurringGroupId && _normalizeVendor(t.vendor, t.amount) === _drillKey
+    )
+    vendor = (allTx[0] && resolveVendor(allTx[0].vendor, allTx[0].amount)) || _drillKey
+  }
   document.getElementById('drillTitle').textContent = `היסטוריית "${vendor}"`
 
   const { start, end } = _getDrillBounds()

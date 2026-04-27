@@ -35,6 +35,22 @@ function renderDashboard() {
       tooltip: `חסכונות חבויים פחות הכנסה הונית:\n${parts.join('\n')}\n\nחיובי = נטו הכנסת כסף לחיסכון. שלילי = נטו שבירת חיסכון.`
     })
   }
+  // Recurring monthly-equivalent — only show when there's at least one
+  // active (non-hidden) recurring entry. Independent of the active period
+  // because cadence is intrinsic to the entry, not to the visible window.
+  if (typeof recurringMonthlyTotals === 'function') {
+    const rt = recurringMonthlyTotals()
+    if (rt.count > 0) {
+      cards.push({
+        label: 'קבועות חודשי שקול',
+        value: rt.net,
+        color: rt.net >= 0 ? 'var(--income)' : 'var(--expense)',
+        icon: '🔁',
+        bg: rt.net >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)',
+        tooltip: `${rt.count} פעולות קבועות (לא־מוסתרות)\nהכנסות: +${formatCurrency(rt.income)}\nהוצאות: -${formatCurrency(rt.expense)}\n\nחישוב חודשי שקול: דו-חודשי /2, רבעוני /3.`
+      })
+    }
+  }
   document.getElementById('dashStats').innerHTML = cards.map(s => `
     <div class="stat-card" ${s.tooltip?`title="${s.tooltip}"`:''}>
       <div class="stat-icon" style="background:${s.bg}">${s.icon}</div>

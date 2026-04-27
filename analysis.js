@@ -54,6 +54,21 @@ function _drawAnalysis() {
       tooltip: `(נטו ${parts.join(' ')}) / (הכנסות − הכנסה הונית)\n\nמוסיף בחזרה הוצאות שסומנו כחיסכון, ומנטרל הכנסות שהן למעשה שבירת חיסכון/דיבידנד.`
     })
   }
+  // Recurring monthly-equivalent — surfaces the "fixed slice" alongside
+  // the period totals. Cadence-intrinsic, not period-bound.
+  if (typeof recurringMonthlyTotals === 'function') {
+    const rt = recurringMonthlyTotals()
+    if (rt.count > 0) {
+      cards.push({
+        label: 'קבועות חודשי שקול',
+        value: rt.net,
+        color: rt.net >= 0 ? 'var(--income)' : 'var(--expense)',
+        icon: '🔁',
+        bg: rt.net >= 0 ? 'var(--income-bg)' : 'var(--expense-bg)',
+        tooltip: `${rt.count} פעולות קבועות (לא־מוסתרות)\nהכנסות: +${formatCurrency(rt.income)}\nהוצאות: -${formatCurrency(rt.expense)}\n\nחודשי שקול: דו-חודשי /2, רבעוני /3.`
+      })
+    }
+  }
   document.getElementById('pnlStats').innerHTML = cards.map(s => `
     <div class="stat-card" ${s.tooltip?`title="${s.tooltip}"`:''}>
       <div class="stat-icon" style="background:${s.bg}">${s.icon}</div>

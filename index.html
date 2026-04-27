@@ -167,6 +167,7 @@
         <select id="txFlowFilter" onchange="_txPage=0;_drawTxTable()"></select>
       </div>
       <div class="tx-summary" id="txSummary"></div>
+      <div id="txSelectToolbar" class="tx-select-toolbar" style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap"></div>
       <div id="txTable" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div>
       <div class="pagination" id="txPagination"></div>
     </div>
@@ -549,6 +550,21 @@
 
 </main>
 
+<!-- Merge to Recurring Modal -->
+<div class="modal-overlay" id="mergeRecurringModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>איחוד לקבועה</h3>
+      <button class="modal-close" onclick="closeMergeRecurringModal()">✕</button>
+    </div>
+    <div id="mergeRecurringBody"></div>
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem">
+      <button class="btn-ghost" onclick="closeMergeRecurringModal()">ביטול</button>
+      <button class="btn-primary" onclick="confirmMergeRecurring()">אחד</button>
+    </div>
+  </div>
+</div>
+
 <!-- Edit Transaction Modal -->
 <div class="modal-overlay" id="editModal">
   <div class="modal-box">
@@ -684,21 +700,21 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.14.0';</script>
-<script src="app.js?v=1.14.0"></script>
-<script src="core.js?v=1.14.0"></script>
-<script src="templates.js?v=1.14.0"></script>
-<script src="autocat.js?v=1.14.0"></script>
-<script src="budget.js?v=1.14.0"></script>
-<script src="budgetGen.js?v=1.14.0"></script>
-<script src="recurring.js?v=1.14.0"></script>
-<script src="dashboard.js?v=1.14.0"></script>
-<script src="transactions.js?v=1.14.0"></script>
-<script src="wizard.js?v=1.14.0"></script>
-<script src="import.js?v=1.14.0"></script>
-<script src="analysis.js?v=1.14.0"></script>
-<script src="settings.js?v=1.14.0"></script>
-<script src="drive.js?v=1.14.0"></script>
+<script>const _v = '1.15.0';</script>
+<script src="app.js?v=1.15.0"></script>
+<script src="core.js?v=1.15.0"></script>
+<script src="templates.js?v=1.15.0"></script>
+<script src="autocat.js?v=1.15.0"></script>
+<script src="budget.js?v=1.15.0"></script>
+<script src="budgetGen.js?v=1.15.0"></script>
+<script src="recurring.js?v=1.15.0"></script>
+<script src="dashboard.js?v=1.15.0"></script>
+<script src="transactions.js?v=1.15.0"></script>
+<script src="wizard.js?v=1.15.0"></script>
+<script src="import.js?v=1.15.0"></script>
+<script src="analysis.js?v=1.15.0"></script>
+<script src="settings.js?v=1.15.0"></script>
+<script src="drive.js?v=1.15.0"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>
