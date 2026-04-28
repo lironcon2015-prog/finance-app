@@ -26,8 +26,12 @@ function _initDriveClient() {
       // future load; first sign-in is the only manual step ever required.
       localStorage.setItem('driveAutoConnect', '1')
       _renderDriveUI()
-      if (wasSilent) _driveAutoRestoreLatest()
-      else _driveCheckNewBackup()
+      if (wasSilent) {
+        _showDriveBoot('☁️ מתחבר ל-Drive…', 'info', null)
+        _driveAutoRestoreLatest()
+      } else {
+        _driveCheckNewBackup()
+      }
     },
   })
 }
@@ -204,15 +208,23 @@ async function _driveCheckNewBackup() {
 async function _driveAutoRestoreLatest() {
   try {
     const file = await _driveFindFile()
-    if (!file) return
+    if (!file) {
+      _showDriveBoot('☁️ מחובר ל-Drive · אין עדיין גיבוי בענן', 'info', 5000)
+      return
+    }
     localStorage.setItem('driveBackupFileId', file.id)
     const localAt = localStorage.getItem('driveBackupAt')
     if (localAt && new Date(file.modifiedTime) <= new Date(localAt)) {
       _updateDriveLastInfo()
+      const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
+      _showDriveBoot(`✅ מחובר ל-Drive · גיבוי עדכני (${dt})`, 'ok', 5000)
       return
     }
     const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`)
-    if (!r.ok) return
+    if (!r.ok) {
+      _showDriveBoot('⚠️ שגיאה בקריאת הגיבוי מ-Drive', 'err', 7000)
+      return
+    }
     const data = await r.json()
     if (data.transactions)       DB.set('finTransactions',            data.transactions)
     if (data.accounts)           DB.set('finAccounts',                data.accounts)
@@ -225,16 +237,24 @@ async function _driveAutoRestoreLatest() {
     if (data.recurringHidden)    DB.set('finRecurringHidden',         data.recurringHidden)
     if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
     localStorage.setItem('driveBackupAt', new Date(file.modifiedTime).toISOString())
-    _showDriveSyncedBanner()
-    setTimeout(() => location.reload(), 1500)
-  } catch {}
+    const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
+    _showDriveBoot(`☁️ סונכרן גיבוי חדש מ-Drive (${dt}) — מרענן…`, 'ok', null)
+    setTimeout(() => location.reload(), 1800)
+  } catch (e) {
+    _showDriveBoot('⚠️ שגיאת סנכרון Drive: ' + (e.message || e), 'err', 7000)
+  }
 }
 
-function _showDriveSyncedBanner() {
+// Boot-time toast for Drive auto-sync. variant: 'info'|'ok'|'err'.
+// autoHideMs=null → sticky (used while we're about to reload).
+function _showDriveBoot(msg, variant, autoHideMs) {
   let el = document.getElementById('driveBanner')
   if (!el) { el = document.createElement('div'); el.id = 'driveBanner'; document.body.appendChild(el) }
-  el.className = 'drive-banner'
-  el.innerHTML = `☁️ סונכרן הגיבוי האחרון מגוגל דרייב — מרענן…`
+  el.className = 'drive-banner drive-banner-' + (variant || 'info')
+  el.innerHTML = `<span>${msg}</span><button onclick="this.closest('.drive-banner').remove()" aria-label="סגור" style="background:transparent;border:none;color:inherit;cursor:pointer;font-size:1rem;padding:0 .25rem">✕</button>`
+  if (autoHideMs) {
+    setTimeout(() => { if (el && el.isConnected && el.textContent.includes(msg.slice(0,10))) el.remove() }, autoHideMs)
+  }
 }
 
 function _showDriveBanner(modifiedTime) {
