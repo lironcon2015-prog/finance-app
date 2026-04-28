@@ -15,10 +15,15 @@ function _initDriveClient() {
       const wasSilent = _driveSilentMode
       _driveSilentMode = false
       if (resp.error) {
-        // Silent auto-connect attempts must not surface OAuth errors — the
-        // user might just have logged out of Google or revoked consent;
-        // fall back to the manual sign-in button without nagging.
-        if (!wasSilent) _showDriveStatus('שגיאה: ' + resp.error, true)
+        // GSI returns access_denied/popup_closed on silent attempts when the
+        // user's Google session expired or the cached token TTL ran out.
+        // Surface a hint banner instead of failing silently — otherwise the
+        // user has no way to know why nothing happened.
+        if (wasSilent) {
+          _showDriveBoot(`🔑 התחברות אוטומטית ל-Drive נכשלה (${resp.error}) — לחץ "התחבר עם Google" בהגדרות`, 'err', 12000)
+        } else {
+          _showDriveStatus('שגיאה: ' + resp.error, true)
+        }
         return
       }
       _driveToken = resp.access_token
@@ -64,15 +69,24 @@ function driveAutoConnectOnBoot() {
       return
     }
   }
+  // Banner up immediately so the user always sees that auto-sync is running,
+  // even if the silent token call fails or the GSI script never finishes.
+  _showDriveBoot('☁️ מתחבר ל-Drive…', 'info', null)
   let tries = 0
   const tick = () => {
     if (window.google && google.accounts && google.accounts.oauth2) {
       _initDriveClient()
       _driveSilentMode = true
-      try { _driveTokenClient.requestAccessToken({ prompt: '' }) }
-      catch { _driveSilentMode = false }
+      try {
+        _driveTokenClient.requestAccessToken({ prompt: '' })
+      } catch (e) {
+        _driveSilentMode = false
+        _showDriveBoot('🔑 התחברות אוטומטית נכשלה — לחץ "התחבר עם Google" בהגדרות', 'err', 10000)
+      }
     } else if (tries++ < 50) {
       setTimeout(tick, 200)
+    } else {
+      _showDriveBoot('⚠️ ספריית Google לא נטענה — בדוק חיבור אינטרנט', 'err', 8000)
     }
   }
   tick()
