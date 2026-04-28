@@ -961,3 +961,60 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
   .btn-primary:active { background: #2563eb; }
   .btn-ghost:active { background: var(--bg-hover); color: var(--text-primary); }
 }
+
+/* ===== PROPERTY / MORTGAGE SCREEN ===== */
+.prop-setup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .9rem; }
+.prop-setup-grid .form-row { display: flex; flex-direction: column; gap: .35rem; }
+
+.prop-summary-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: .85rem; margin: 1rem 0 1.25rem;
+}
+.prop-summary-card {
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: .75rem; padding: .85rem 1rem;
+  display: flex; flex-direction: column; gap: .25rem;
+}
+.prop-summary-label { font-size: .78rem; color: var(--text-muted); }
+.prop-summary-val   { font-size: 1.25rem; font-weight: 700; }
+.prop-summary-sub   { font-size: .75rem; color: var(--text-muted); }
+.prop-next-card     { border-color: rgba(59, 130, 246, .35); background: rgba(59, 130, 246, .07); }
+.prop-next-date     { font-size: 1rem; font-weight: 600; }
+.prop-next-amt      { font-size: 1.1rem; font-weight: 700; color: var(--expense); }
+
+.prop-progress-track { height: 6px; background: rgba(255,255,255,.08); border-radius: 4px; overflow: hidden; margin: .35rem 0 .15rem; }
+.prop-progress-fill  { height: 100%; background: linear-gradient(90deg, #22c55e, #3b82f6); border-radius: 4px; transition: width .3s ease; }
+
+.prop-table th, .prop-table td { vertical-align: middle; }
+.prop-table .prop-input {
+  width: 100%; min-width: 5rem;
+  padding: .3rem .45rem; font-size: .85rem;
+  background: var(--bg-input, var(--bg-elev));
+  border: 1px solid var(--border); border-radius: .35rem;
+  color: var(--text-primary);
+}
+.prop-table input[type=date].prop-input { min-width: 8rem; }
+.prop-table input[type=number].prop-input { text-align: end; }
+
+.prop-status {
+  display: inline-block; padding: .15rem .55rem; border-radius: 999px;
+  font-size: .72rem; font-weight: 600; white-space: nowrap;
+}
+.prop-st-paid     { background: rgba(34,197,94,.15); color: #4ade80; }
+.prop-st-overdue  { background: rgba(239,68,68,.18); color: #f87171; }
+.prop-st-upcoming { background: rgba(245,158,11,.18); color: #fbbf24; }
+.prop-st-future   { background: rgba(148,163,184,.15); color: var(--text-muted); }
+.prop-st-tba      { background: rgba(148,163,184,.10); color: var(--text-muted); }
+
+.prop-row-mismatch { background: rgba(245,158,11,.08); }
+.prop-row-mismatch td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
+
+.prop-totals-row { background: var(--bg-elev); font-weight: 600; }
+.prop-totals-row td { border-top: 2px solid var(--border); }
+
+@media (max-width: 720px) {
+  .prop-summary-val { font-size: 1.05rem; }
+  .prop-summary-grid { grid-template-columns: 1fr 1fr; }
+  .prop-table { font-size: .8rem; }
+  .prop-table .prop-input { min-width: 4rem; }
+}

@@ -1,4 +1,4 @@
-const APP_VERSION = '1.18.4'
+const APP_VERSION = '1.19.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -52,6 +52,7 @@ function navigate(screen) {
   if (screen === 'analysis') renderAnalysis()
   if (screen === 'recurring') renderRecurring()
   if (screen === 'budget') renderBudgetScreen()
+  if (screen === 'property') renderProperty()
   if (screen === 'settings') renderSettings()
 }
 
