@@ -15,14 +15,19 @@ function _initDriveClient() {
       const wasSilent = _driveSilentMode
       _driveSilentMode = false
       if (resp.error) {
-        // GSI returns access_denied/popup_closed on silent attempts when the
-        // user's Google session expired or the cached token TTL ran out.
-        // Surface a hint banner instead of failing silently — otherwise the
-        // user has no way to know why nothing happened.
+        // Silent attempts routinely fail when the cached token TTL expired
+        // or the Google session lapsed. Escalate immediately to an
+        // interactive popup so the user gets a single-tap path to recovery
+        // — they explicitly asked for the login screen to appear on entry.
         if (wasSilent) {
-          _showDriveBoot(`🔑 התחברות אוטומטית ל-Drive נכשלה (${resp.error}) — לחץ "התחבר עם Google" בהגדרות`, 'err', 12000)
+          _showDriveBoot('🔑 פותח חלון התחברות ל-Google…', 'info', null)
+          try {
+            _driveTokenClient.requestAccessToken()
+          } catch {
+            _renderDriveBootCTA(resp.error)
+          }
         } else {
-          _showDriveStatus('שגיאה: ' + resp.error, true)
+          _renderDriveBootCTA(resp.error)
         }
         return
       }
@@ -31,12 +36,10 @@ function _initDriveClient() {
       // future load; first sign-in is the only manual step ever required.
       localStorage.setItem('driveAutoConnect', '1')
       _renderDriveUI()
-      if (wasSilent) {
-        _showDriveBoot('☁️ מתחבר ל-Drive…', 'info', null)
-        _driveAutoRestoreLatest()
-      } else {
-        _driveCheckNewBackup()
-      }
+      // Whether the token came in silently or via interactive popup, the
+      // user wants the same outcome: pull the latest backup automatically.
+      _showDriveBoot('☁️ מחובר — שואב גיבוי…', 'info', null)
+      _driveAutoRestoreLatest()
     },
   })
 }
@@ -79,9 +82,22 @@ function driveAutoConnectOnBoot() {
       _driveSilentMode = true
       try {
         _driveTokenClient.requestAccessToken({ prompt: '' })
+        // Watchdog: GSI sometimes neither succeeds nor fires the error
+        // callback for silent attempts (network hiccup, blocked third-party
+        // cookies, expired session). After 3.5s we give up on silent and
+        // escalate to an interactive popup so the user isn't stuck staring
+        // at a "מתחבר…" banner forever.
+        setTimeout(() => {
+          if (_driveSilentMode && !_driveToken) {
+            _driveSilentMode = false
+            _showDriveBoot('🔑 פותח חלון התחברות ל-Google…', 'info', null)
+            try { _driveTokenClient.requestAccessToken() }
+            catch { _renderDriveBootCTA('זמן ההמתנה אזל') }
+          }
+        }, 3500)
       } catch (e) {
         _driveSilentMode = false
-        _showDriveBoot('🔑 התחברות אוטומטית נכשלה — לחץ "התחבר עם Google" בהגדרות', 'err', 10000)
+        _renderDriveBootCTA(e?.message || '')
       }
     } else if (tries++ < 50) {
       setTimeout(tick, 200)
@@ -90,6 +106,20 @@ function driveAutoConnectOnBoot() {
     }
   }
   tick()
+}
+
+// CTA banner shown when no automatic path can complete the connection — the
+// user has to tap to grant the popup permission. Stays sticky until they
+// click or dismiss; a tap on "התחבר" reuses driveSignIn (interactive request)
+// which then runs through the same auto-restore flow on success.
+function _renderDriveBootCTA(reason) {
+  let el = document.getElementById('driveBanner')
+  if (!el) { el = document.createElement('div'); el.id = 'driveBanner'; document.body.appendChild(el) }
+  el.className = 'drive-banner drive-banner-err'
+  const detail = reason ? ` <span style="opacity:.7;font-size:.8rem">(${reason})</span>` : ''
+  el.innerHTML = `<span>🔑 נדרשת התחברות ל-Google כדי לסנכרן גיבוי${detail}</span>` +
+    `<button onclick="driveSignIn()">התחבר עכשיו</button>` +
+    `<button onclick="this.closest('.drive-banner').remove()" aria-label="סגור" style="background:transparent;border:none;color:inherit;cursor:pointer;font-size:1rem;padding:0 .25rem">✕</button>`
 }
 
 function _renderDriveUI() {
