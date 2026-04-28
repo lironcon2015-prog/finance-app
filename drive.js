@@ -54,7 +54,16 @@ function driveSignOut() {
 // and pulls the latest backup. First-time users still need the manual
 // "התחבר עם Google" click — Google's consent flow requires a user gesture.
 function driveAutoConnectOnBoot() {
-  if (localStorage.getItem('driveAutoConnect') !== '1') return
+  // Backfill the auto flag for users who connected pre-v1.18.0: the presence
+  // of any Drive backup state proves prior consent, so we can opt them into
+  // silent re-connect without making them click sign-in again.
+  if (localStorage.getItem('driveAutoConnect') !== '1') {
+    if (localStorage.getItem('driveBackupFileId') || localStorage.getItem('driveBackupAt')) {
+      localStorage.setItem('driveAutoConnect', '1')
+    } else {
+      return
+    }
+  }
   let tries = 0
   const tick = () => {
     if (window.google && google.accounts && google.accounts.oauth2) {
