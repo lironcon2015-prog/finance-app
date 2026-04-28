@@ -4,6 +4,7 @@ const DRIVE_FILE_NAME = 'finance-app-backup.json'
 
 let _driveToken = null
 let _driveTokenClient = null
+let _driveSilentMode = false
 
 function _initDriveClient() {
   if (_driveTokenClient) return
@@ -11,10 +12,22 @@ function _initDriveClient() {
     client_id: DRIVE_CLIENT_ID,
     scope: DRIVE_SCOPE,
     callback: resp => {
-      if (resp.error) { _showDriveStatus('שגיאה: ' + resp.error, true); return }
+      const wasSilent = _driveSilentMode
+      _driveSilentMode = false
+      if (resp.error) {
+        // Silent auto-connect attempts must not surface OAuth errors — the
+        // user might just have logged out of Google or revoked consent;
+        // fall back to the manual sign-in button without nagging.
+        if (!wasSilent) _showDriveStatus('שגיאה: ' + resp.error, true)
+        return
+      }
       _driveToken = resp.access_token
+      // Once we have a token, opt the user into silent re-connect on every
+      // future load; first sign-in is the only manual step ever required.
+      localStorage.setItem('driveAutoConnect', '1')
       _renderDriveUI()
-      _driveCheckNewBackup()
+      if (wasSilent) _driveAutoRestoreLatest()
+      else _driveCheckNewBackup()
     },
   })
 }
@@ -27,7 +40,29 @@ function driveSignIn() {
 function driveSignOut() {
   if (_driveToken) google.accounts.oauth2.revoke(_driveToken)
   _driveToken = null
+  // Disable auto-connect so we don't immediately re-authenticate next load.
+  localStorage.removeItem('driveAutoConnect')
   _renderDriveUI()
+}
+
+// Called once on app boot; if the user has connected before, silently
+// re-authenticates against Google (no popup if their Google session is live)
+// and pulls the latest backup. First-time users still need the manual
+// "התחבר עם Google" click — Google's consent flow requires a user gesture.
+function driveAutoConnectOnBoot() {
+  if (localStorage.getItem('driveAutoConnect') !== '1') return
+  let tries = 0
+  const tick = () => {
+    if (window.google && google.accounts && google.accounts.oauth2) {
+      _initDriveClient()
+      _driveSilentMode = true
+      try { _driveTokenClient.requestAccessToken({ prompt: '' }) }
+      catch { _driveSilentMode = false }
+    } else if (tries++ < 50) {
+      setTimeout(tick, 200)
+    }
+  }
+  tick()
 }
 
 function _renderDriveUI() {
@@ -161,6 +196,45 @@ async function _driveCheckNewBackup() {
       _showDriveBanner(file.modifiedTime)
     }
   } catch {}
+}
+
+// Silent restore on boot — only runs after a successful auto-reconnect, and
+// only when the cloud copy is strictly newer than the local one. Reloads
+// after writing so every screen renders against the freshly restored data.
+async function _driveAutoRestoreLatest() {
+  try {
+    const file = await _driveFindFile()
+    if (!file) return
+    localStorage.setItem('driveBackupFileId', file.id)
+    const localAt = localStorage.getItem('driveBackupAt')
+    if (localAt && new Date(file.modifiedTime) <= new Date(localAt)) {
+      _updateDriveLastInfo()
+      return
+    }
+    const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`)
+    if (!r.ok) return
+    const data = await r.json()
+    if (data.transactions)       DB.set('finTransactions',            data.transactions)
+    if (data.accounts)           DB.set('finAccounts',                data.accounts)
+    if (data.categories)         DB.set('finCategories',              data.categories)
+    if (data.budgets)            DB.set('finBudgets',                 data.budgets)
+    if (data.rules)              DB.set('finCategoryRules',           data.rules)
+    if (data.templates)          DB.set('finImportTemplates',         data.templates)
+    if (data.aliases)            DB.set('finVendorAliases',           data.aliases)
+    if (data.recurringGroups)    DB.set('finManualRecurringGroups',   data.recurringGroups)
+    if (data.recurringHidden)    DB.set('finRecurringHidden',         data.recurringHidden)
+    if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
+    localStorage.setItem('driveBackupAt', new Date(file.modifiedTime).toISOString())
+    _showDriveSyncedBanner()
+    setTimeout(() => location.reload(), 1500)
+  } catch {}
+}
+
+function _showDriveSyncedBanner() {
+  let el = document.getElementById('driveBanner')
+  if (!el) { el = document.createElement('div'); el.id = 'driveBanner'; document.body.appendChild(el) }
+  el.className = 'drive-banner'
+  el.innerHTML = `☁️ סונכרן הגיבוי האחרון מגוגל דרייב — מרענן…`
 }
 
 function _showDriveBanner(modifiedTime) {

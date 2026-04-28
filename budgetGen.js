@@ -139,21 +139,35 @@ function generateBudgetProposals(targetMonth) {
     const hasPrev = typeof prevBudget === 'number' && prevBudget > 0
     const blended = hasPrev ? 0.7 * trimmed + 0.3 * prevBudget : trimmed
 
-    const recForCat = recurring.filter(r => r.categoryId === cat.id)
+    // Recurring layer for this category — only entries whose direction matches
+    // the category type (income vs expense). Monthly-equivalent (smoothedMonthly)
+    // already converts a quarterly bill into ~1/3 of itself per month, so this
+    // is the "fixed monthly load" that the budget MUST cover regardless of the
+    // historical baseline.
+    const recForCat = recurring.filter(r => r.categoryId === cat.id && (
+      type === 'income' ? r.smoothedMonthly > 0 : r.smoothedMonthly < 0
+    ))
+    const recurringFixed = recForCat.reduce((s, r) => s + Math.abs(r.smoothedMonthly), 0)
+
+    // Non-monthly bumps that LAND in the target month — when a quarterly bill
+    // hits this exact month, the floor should be the full amount, not the 1/3
+    // smoothed share. Take the bigger of the two so both regimes are covered.
     const nonMonthlyRec = recForCat.filter(r => r.cadence !== 'monthly')
     const recurringHits = nonMonthlyRec.filter(r => _bgRecurringHitsMonth(r, target))
-    const recurringFloor = recurringHits.reduce((s, r) => s + Math.abs(r.avgAmount), 0)
+    const nonMonthlyFloor = recurringHits.reduce((s, r) => s + Math.abs(r.avgAmount), 0)
+    const recurringFloor = Math.max(recurringFixed, nonMonthlyFloor)
 
     const raw = Math.max(blended, recurringFloor)
     const suggested = Math.max(0, Math.round(raw / 10) * 10)
     const flooredByRecurring = recurringFloor > blended && recurringFloor > 0
 
-    const notes = nonMonthlyRec.map(r => ({
+    const notes = recForCat.map(r => ({
       vendor: r.vendor,
       cadence: r.cadenceLabel,
       cadenceKey: r.cadence,
       avgAmount: r.avgAmount,
-      expectedThisMonth: _bgRecurringHitsMonth(r, target),
+      smoothedMonthly: r.smoothedMonthly,
+      expectedThisMonth: r.cadence === 'monthly' ? true : _bgRecurringHitsMonth(r, target),
     }))
 
     const totalAbs = perMonth.reduce((s,v)=>s+Math.abs(v),0)
@@ -170,6 +184,7 @@ function generateBudgetProposals(targetMonth) {
       trimmedMean: trimmed,
       prevBudget: hasPrev ? prevBudget : null,
       blended,
+      recurringFixed,
       recurringFloor,
       flooredByRecurring,
       suggested,
@@ -238,8 +253,11 @@ function _renderBudgetGenModal() {
     const prevLine = p.prevBudget != null
       ? `<div>חודש קודם: ${formatCurrency(p.prevBudget)}</div><div>בלנד 70/30: ${formatCurrency(p.blended)}</div>`
       : ''
+    const fixedLine = p.recurringFixed > 0
+      ? `<div class="bgen-fixed-tag" title="חלק זה של התקציב מקורו בהוצאות/הכנסות שזוהו כקבועות (חודשי שקול)">📌 מתוך זה ${formatCurrency(p.recurringFixed)} קבוע</div>`
+      : ''
     const floorLine = p.flooredByRecurring
-      ? `<div class="bgen-floor-tag" title="המחזורי-הלא-חודשי שצפוי בחודש היעד גבוה מהבסיס — התקציב הועלה להתאמה">📌 רצפה ממחזורי: ${formatCurrency(p.recurringFloor)}</div>`
+      ? `<div class="bgen-floor-tag" title="הרצפה ממחזורי גבוהה מהבסיס ההיסטורי — התקציב הועלה להתאמה">📌 רצפה ממחזורי: ${formatCurrency(p.recurringFloor)}</div>`
       : ''
     const aiAdvice = _budgetGenAdvicePerCat[p.categoryId]
     const aiLine = aiAdvice
@@ -255,6 +273,7 @@ function _renderBudgetGenModal() {
           <div>ממוצע: ${formatCurrency(p.mean)}</div>
           <div>מקוצץ: ${formatCurrency(p.trimmedMean)}</div>
           ${prevLine}
+          ${fixedLine}
           ${floorLine}
           ${outBadge}
         </td>
@@ -294,8 +313,8 @@ function _renderBudgetGenModal() {
 
   body.innerHTML = `
     <div style="color:var(--text-muted);font-size:.85rem;margin-bottom:.75rem">
-      מבוסס על 3 חודשים מלאים לפני ${targetLabel}. ערכים חריגים (מעל 100% מעל ממוצע האחרים) הוחרגו מהבסיס.
-      כשקיים תקציב לחודש שקדם, הבלנד הוא 70% בסיס היסטורי + 30% תקציב קודם — עם רצפה מינימלית של הוצאות דו-חודשיות/רבעוניות/שנתיות שצפויות דווקא בחודש היעד.
+      מבוסס על 3 חודשים מלאים לפני ${targetLabel} בשילוב שכבת ההכנסות/הוצאות הקבועות. ערכים חריגים (מעל 100% מעל ממוצע האחרים) הוחרגו מהבסיס.
+      כשקיים תקציב לחודש שקדם, הבלנד הוא 70% בסיס היסטורי + 30% תקציב קודם — תמיד מעל רצפת הקבועות (חודשי שקול), עם תוספת לחודשים שבהם נופלת הוצאה דו-חודשית/רבעונית/שנתית.
     </div>
     ${advice}
     ${table(expProps, 'הוצאות', 'expense')}
@@ -379,6 +398,7 @@ async function adviseBudgetWithGemini() {
         trimmed: Math.round(p.trimmedMean),
         prevBudget: p.prevBudget,
         blended: Math.round(p.blended),
+        recurringFixed: Math.round(p.recurringFixed || 0),
         recurringFloor: Math.round(p.recurringFloor),
         suggested: p.suggested,
         weightOfTotalPct: weight,

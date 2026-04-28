@@ -1,4 +1,4 @@
-const APP_VERSION = '1.17.0'
+const APP_VERSION = '1.18.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -553,6 +553,7 @@ document.addEventListener('DOMContentLoaded', () => {
   migrateBudgetMonthly_v2()
   if (typeof migrateManualGroupVendorKeys_v1 === 'function') migrateManualGroupVendorKeys_v1()
   navigate('dashboard')
+  if (typeof driveAutoConnectOnBoot === 'function') driveAutoConnectOnBoot()
 
   const dz = document.getElementById('dropZone')
   if (dz) {

@@ -824,11 +824,11 @@ function _renderDrillModal() {
             <td style="font-weight:500">${resolveVendor(t.vendor, t.amount) || '—'}</td>
             <td>${cat ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon||''} ${cat.name}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
             <td class="${t.amount>0?'amount-inc':'amount-exp'}" style="font-weight:600">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
-            <td>
-              <input type="month" value="${overrideYm}" onchange="setRecurringTxPeriodOverride('${t.id}', this.value)" style="font-size:.8rem;padding:.2rem .35rem;width:8.5rem">
+            <td style="min-width:9.5rem">
+              <input type="month" value="${overrideYm}" onchange="setRecurringTxPeriodOverride('${t.id}', this.value)" style="font-size:.85rem;padding:.3rem .4rem;width:9rem">
             </td>
-            <td>
-              <select onchange="setRecurringTxExclude('${t.id}', this.value)" style="font-size:.8rem;padding:.2rem .35rem">
+            <td style="min-width:8.5rem">
+              <select onchange="setRecurringTxExclude('${t.id}', this.value)" style="font-size:.85rem;padding:.3rem .45rem;min-width:8rem;width:100%">
                 <option value="" ${mode===''?'selected':''}>נספר</option>
                 <option value="amount" ${mode==='amount'?'selected':''}>בלי סכום</option>
                 <option value="period" ${mode==='period'?'selected':''}>דלג</option>
@@ -859,7 +859,7 @@ function _renderDrillModal() {
     </div>
     <div style="overflow-x:auto;margin-top:1rem">
       <table class="data-table">
-        <thead><tr><th>תאריך</th><th>ספק</th><th>קטגוריה</th><th style="text-align:left">סכום</th><th>תקופת שיוך</th><th>ספירה</th></tr></thead>
+        <thead><tr><th>תאריך</th><th>ספק</th><th>קטגוריה</th><th style="text-align:left">סכום</th><th style="min-width:9.5rem">תקופת שיוך</th><th style="min-width:8.5rem">ספירה</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`
