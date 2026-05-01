@@ -527,32 +527,42 @@ function importPropertyXlsx(file) {
       const sheet = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false })
       const mapped = []
+      
       for (const r of rows) {
         const row = _propEmptyPayment()
+        let rawTypeStr = ''
+        
         for (const k of Object.keys(r)) {
           const key = String(k).trim()
           const v = r[k]
-          if (/^מועד$/.test(key) || /due.?date/i.test(key))         row.dueDate    = _xlsxToIso(v)
+          
+          if (/מועד/.test(key) || /due.?date/i.test(key))         row.dueDate    = _xlsxToIso(v)
           else if (/תאריך\s*תשלום/.test(key) || /paid.?date/i.test(key)) row.paidDate = _xlsxToIso(v)
-          else if (/^תשלום\/?פעולה$/.test(key) || /^type$/i.test(key)) row.type     = _propTypeFromHebrew(v)
+          else if (/תשלום\/?פעולה/.test(key) || /^type$/i.test(key)) {
+            row.type = _propTypeFromHebrew(v)
+            rawTypeStr = String(v).trim()
+          }
           else if (/מס.*תשלום/.test(key) || /payment.?(no|num)/i.test(key)) {
             const n = parseInt(String(v).replace(/\D/g, ''), 10)
             row.paymentNumber = isFinite(n) ? n : null
           }
-          else if (/^סכום$/.test(key) || /^amount$/i.test(key))           row.amount     = _xlsxToNumber(v)
+          else if (/סכום/.test(key) || /^amount$/i.test(key))           row.amount     = _xlsxToNumber(v)
           else if (/שולם.*בפועל/.test(key) || /paid.?amount/i.test(key))  row.paidAmount = _xlsxToNumber(v)
           else if (/הון\s*עצמי/.test(key) || /^equity$/i.test(key))        row.equity     = _xlsxToNumber(v)
-          else if (/^משכנתא$/.test(key) || /^mortgage$/i.test(key))         row.mortgage   = _xlsxToNumber(v)
-          else if (/^הערות?$/.test(key) || /^notes?$/i.test(key))           row.notes      = String(v || '')
+          else if (/משכנתא/.test(key) || /^mortgage$/i.test(key))         row.mortgage   = _xlsxToNumber(v)
+          else if (/הערות?/.test(key) || /^notes?$/i.test(key))           row.notes      = String(v || '')
           else if (/מסלול/.test(key) || /^track$/i.test(key))               row.track      = _propTrackFromHebrew(v)
         }
         
-        // סינון חזק לשורות סיכום ריקות
-        if (!row.dueDate && !row.paidDate && row.amount === 0 && row.paidAmount === 0) continue
-        if (row.amount === 0 && row.paidAmount === 0 && row.equity === 0 && row.mortgage === 0 && !row.dueDate) continue
+        // סינון חזק לשורות סיכום ריקות לחלוטין
+        if (!row.dueDate && !row.paidDate && row.amount === 0 && row.paidAmount === 0 && row.equity === 0 && row.mortgage === 0) continue
+        
+        // סינון שורות סיכום בתחתית: לשורות אלה אין סוג פעולה חוקי מוגדר, ואין להן מספר תשלום.
+        if (!rawTypeStr && row.paymentNumber === null) continue
         
         mapped.push(row)
       }
+      
       if (mapped.length === 0) { alert('לא נמצאו שורות תקפות באקסל'); return }
       if (!confirm(`לייבא ${mapped.length} שורות? פעולה זו תחליף את הטבלה הקיימת.`)) return
       savePropertyPayments(mapped)
@@ -565,6 +575,7 @@ function importPropertyXlsx(file) {
   }
   reader.readAsArrayBuffer(file)
 }
+
 function _xlsxToIso(v) {
   if (!v) return ''
   if (v instanceof Date) {
@@ -585,7 +596,9 @@ function _xlsxToNumber(v) {
   if (typeof v === 'number') return v
   if (!v) return 0
   // Remove ₪, commas, spaces, dashes that mean "empty"
-  const s = String(v).replace(/[₪,\s]/g, '').replace(/^-$/, '')
+  const s = String(v).replace(/[₪,\s]/g, '').replace(/^-+$/, '')
+  // התעלמות מתאים שמכילים N/A
+  if (/n\/a/i.test(s)) return 0
   const n = parseFloat(s)
   return isFinite(n) ? n : 0
 }
