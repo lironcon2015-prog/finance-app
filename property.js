@@ -19,7 +19,8 @@ const PROPERTY_TYPES = {
 }
 
 function getProperty() {
-  return DB.get('finProperty', { name: 'דירה בנתניה', signedAt: '', basePrice: 0, mortgageCategoryId: '' })
+  // נוסף מערך additionalCosts עבור עלויות נוספות לנכס
+  return DB.get('finProperty', { name: 'דירה בנתניה', signedAt: '', basePrice: 0, mortgageCategoryId: '', additionalCosts: [] })
 }
 function saveProperty(p) { DB.set('finProperty', p) }
 
@@ -40,23 +41,34 @@ function _propEmptyPayment() {
 function _propertyTotals() {
   const p = getProperty()
   const pays = getPropertyPayments()
-  const sumPays         = pays.reduce((s, x) => s + (Number(x.amount) || 0), 0)
-  const totalDue        = sumPays > 0 ? sumPays : (Number(p.basePrice) || 0)
+  
+  // סך העלויות הנוספות
+  const addCosts = (p.additionalCosts || []).reduce((s, c) => s + (Number(c.amount) || 0), 0)
+  // סך מס הרכישה מתוך טבלת התשלומים
+  const purchaseTax = pays.filter(x => x.type === 'tax').reduce((s, x) => s + (Number(x.amount) || 0), 0)
+  
+  const basePrice = Number(p.basePrice) || 0
+  
+  // מחיר כולל = חוזה + עלויות נוספות + מס רכישה
+  const totalDue = basePrice + addCosts + purchaseTax
+  const priceExclTax = basePrice + addCosts
+
   const totalPaid       = pays.reduce((s, x) => s + (Number(x.paidAmount) || 0), 0)
   const totalEquity     = pays.reduce((s, x) => s + (Number(x.equity) || 0), 0)
   const totalMortgage   = pays.reduce((s, x) => s + (Number(x.mortgage) || 0), 0)
-  const purchaseTax     = pays.filter(x => x.type === 'tax').reduce((s, x) => s + (Number(x.amount) || 0), 0)
-  const priceExclTax    = totalDue - purchaseTax
   const denominator     = totalEquity + totalMortgage
   const equityRatio     = denominator > 0 ? totalEquity / denominator : 0
   const remaining       = totalDue - totalPaid
+  
   const today = _iso(new Date())
   const unpaid = pays.filter(x => !x.paidDate && (Number(x.amount) || 0) > 0)
   const future = unpaid.filter(x => x.dueDate && x.dueDate >= today).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
   const overdue = unpaid.filter(x => x.dueDate && x.dueDate < today).sort((a, b) => b.dueDate.localeCompare(a.dueDate))
   const nextPayment = future[0] || overdue[0] || null
+  
   return { p, pays, totalDue, totalPaid, purchaseTax, priceExclTax, totalEquity, totalMortgage, equityRatio, remaining, nextPayment }
 }
+
 function _propertyStatus(row) {
   const today = _iso(new Date())
   const paid = (Number(row.paidAmount) || 0) > 0 && row.paidDate
@@ -72,14 +84,9 @@ function _propertyStatus(row) {
 }
 
 // ===== MORTGAGE PAYMENTS (pulled from existing tx) =====
-// User picks a category; we sum all expense tx in it (negative) up to today,
-// take their absolute value, and report.
 function getPropertyManualMortgage() { return DB.get('finPropertyManualMortgage', []) }
 function savePropertyManualMortgage(list) { DB.set('finPropertyManualMortgage', list) }
 
-// Combines auto-detected tx (filtered by mortgage category) with manual
-// entries the user added — used both for the summary card and the drill
-// modal. Returns a unified list with `source: 'auto'|'manual'`.
 function _mortgagePaymentList(catId) {
   const today = _iso(new Date())
   const auto = !catId ? [] : getTransactions().filter(t =>
@@ -130,10 +137,46 @@ function renderProperty() {
   `
 }
 
+function addPropCost() {
+  const p = getProperty()
+  if (!p.additionalCosts) p.additionalCosts = []
+  p.additionalCosts.push({ id: genId(), name: '', amount: 0 })
+  saveProperty(p)
+  renderProperty()
+}
+
+function removePropCost(idx) {
+  const p = getProperty()
+  if (p.additionalCosts && p.additionalCosts[idx]) {
+    p.additionalCosts.splice(idx, 1)
+    saveProperty(p)
+    renderProperty()
+  }
+}
+
+function updatePropCost(idx, field, value) {
+  const p = getProperty()
+  if (p.additionalCosts && p.additionalCosts[idx]) {
+    if (field === 'amount') p.additionalCosts[idx][field] = parseFloat(value) || 0
+    else p.additionalCosts[idx][field] = value
+    saveProperty(p)
+    renderProperty()
+  }
+}
+
 function _propSetupCard(p, cats) {
   const catOpts = ['<option value="">— בחר קטגוריה —</option>']
     .concat(cats.map(c => `<option value="${c.id}" ${p.mortgageCategoryId===c.id?'selected':''}>${c.icon||''} ${c.name}</option>`))
     .join('')
+    
+  const costsHtml = (p.additionalCosts || []).map((c, i) => `
+    <div style="display:flex; gap:0.5rem; margin-bottom: 0.35rem; align-items:center;">
+      <input type="text" class="form-input" placeholder="שם העלות (למשל: עו''ד)" value="${c.name.replace(/"/g,'&quot;')}" onchange="updatePropCost(${i}, 'name', this.value)">
+      <input type="number" class="form-input" placeholder="סכום" value="${c.amount ? c.amount : ''}" onchange="updatePropCost(${i}, 'amount', this.value)" style="width: 110px;">
+      <button class="btn-ghost" onclick="removePropCost(${i})" style="padding: 0.2rem 0.5rem; color: var(--expense);" title="מחק עלות">✕</button>
+    </div>
+  `).join('')
+
   return `
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -158,6 +201,17 @@ function _propSetupCard(p, cats) {
           <input type="text" inputmode="numeric" value="${p.marketValue ? Number(p.marketValue).toLocaleString('en-US') : ''}" onfocus="this.value=this.value.replace(/,/g,'')" onblur="this.value=Number(this.value.replace(/,/g,'')||0).toLocaleString('en-US'); onPropertyMetaChange('marketValue', this.value.replace(/,/g,''))" class="form-input" style="direction:ltr;text-align:left" placeholder="0"></label>
         <label class="form-row"><span class="form-label">קטגוריית תשלומי משכנתא חודשיים</span>
           <select onchange="onPropertyMetaChange('mortgageCategoryId', this.value)" class="form-input">${catOpts}</select></label>
+        
+        <label class="form-row" style="grid-column: 1 / -1; margin-top:0.5rem; background: var(--bg-elevated); padding: 0.8rem; border-radius: 8px;">
+          <span class="form-label" style="display:flex; justify-content:space-between; margin-bottom:0.75rem;">
+            <span>עלויות נוספות לנכס (עו"ד, תיווך, שמאי וכו')</span>
+            <button class="btn-ghost" onclick="addPropCost()" style="font-size:0.75rem; padding: 0.15rem 0.5rem;">+ הוסף עלות</button>
+          </span>
+          <div id="propAdditionalCosts">
+            ${costsHtml || '<span style="font-size:0.8rem;color:var(--text-muted);">לא הוגדרו עלויות נוספות</span>'}
+          </div>
+        </label>
+        
         <label class="form-row" style="grid-column: 1 / -1"><span class="form-label">הערות כלליות לנכס</span>
           <textarea rows="2" onchange="onPropertyMetaChange('notes', this.value)" class="form-input" placeholder="הערות לעצמך — קומה, מ״ר, חניות, מחסן…">${p.notes||''}</textarea></label>
       </div>
@@ -176,15 +230,15 @@ function _propSummaryCards(t) {
   return `
     <div class="prop-summary-grid">
       <div class="prop-summary-card">
-        <div class="prop-summary-label">מחיר כולל (כולל מס רכישה)</div>
+        <div class="prop-summary-label">מחיר כולל (כולל מיסים וע.נוספות)</div>
         <div class="prop-summary-val">${formatCurrency(t.totalDue)}</div>
-        <div class="prop-summary-sub">בלי מס רכישה: ${formatCurrency(t.priceExclTax)}</div>
+        <div class="prop-summary-sub">ללא מס רכישה: ${formatCurrency(t.priceExclTax)}</div>
       </div>
       <div class="prop-summary-card">
         <div class="prop-summary-label">שולם בפועל</div>
         <div class="prop-summary-val income-color">${formatCurrency(t.totalPaid)}</div>
         <div class="prop-progress-track"><div class="prop-progress-fill" style="width:${paidPct}%"></div></div>
-        <div class="prop-summary-sub">${paidPct.toFixed(1)}% מסך החוזה</div>
+        <div class="prop-summary-sub">${paidPct.toFixed(1)}% מסך ההתחייבות</div>
       </div>
       <div class="prop-summary-card">
         <div class="prop-summary-label">יתרה לתשלום</div>
@@ -193,12 +247,12 @@ function _propSummaryCards(t) {
       <div class="prop-summary-card">
         <div class="prop-summary-label">הון עצמי</div>
         <div class="prop-summary-val">${formatCurrency(t.totalEquity)}</div>
-        <div class="prop-summary-sub">${ratioPct}% מהמימון</div>
+        <div class="prop-summary-sub">${ratioPct}% מהמימון ששולם</div>
       </div>
       <div class="prop-summary-card">
         <div class="prop-summary-label">משכנתא</div>
         <div class="prop-summary-val">${formatCurrency(t.totalMortgage)}</div>
-        <div class="prop-summary-sub">${(100 - parseFloat(ratioPct)).toFixed(1)}% מהמימון</div>
+        <div class="prop-summary-sub">${(100 - parseFloat(ratioPct)).toFixed(1)}% מהמימון ששולם</div>
       </div>
       <div class="prop-summary-card prop-next-card">
         <div class="prop-summary-label">תשלום הבא</div>
@@ -243,7 +297,7 @@ function _propPaymentsTable(t) {
             <th>הון עצמי</th>
             <th>משכנתא</th>
             <th>מסלול</th>
-            <th>הערות</th>
+            <th style="text-align:center;">הערות</th>
             <th></th>
           </tr></thead>
           <tbody>
@@ -256,6 +310,18 @@ function _propPaymentsTable(t) {
         💡 הזן את "שולם בפועל" + "הון עצמי" — חלק המשכנתא יחושב אוטומטית. אם הון+משכנתא ≠ שולם, השורה תודגש.
       </div>
     </div>`
+}
+
+function editPropertyNote(id) {
+  const list = getPropertyPayments()
+  const row = list.find(x => x.id === id)
+  if (!row) return
+  const newNote = prompt('הזן הערה לשורה זו (השאר ריק כדי למחוק):', row.notes || '')
+  if (newNote !== null) {
+    row.notes = newNote.trim()
+    savePropertyPayments(list)
+    renderProperty()
+  }
 }
 
 function _propRow(row) {
@@ -279,7 +345,10 @@ function _propRow(row) {
   }
 
   const num = (k, val) => `<input type="text" inputmode="numeric" class="prop-input" value="${val ? Number(val).toLocaleString('en-US') : ''}" onfocus="this.value=this.value.replace(/,/g,'')" onblur="this.value=Number(this.value.replace(/,/g,'')||0).toLocaleString('en-US'); onPropertyRowChange('${row.id}','${k}',this.value.replace(/,/g,''))" placeholder="0">`
-  const date = (k, val) => `<input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" class="prop-input" value="${_isoToDmy(val||'')}" oninput="_onDateMaskInput(this)" onchange="onPropertyRowChange('${row.id}','${k}',_dmyToIso(this.value))">`
+  const date = (k, val) => `<input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" class="prop-input" value="${_isoToDmy(val||'')}" oninput="_onDateMaskInput(this)" onchange="onPropertyRowChange('${row.id}','${k}',_dmyToIso(this.value))" style="min-width: 6.5rem; text-align: center;">`
+  
+  const hasNote = !!row.notes && row.notes.trim() !== ''
+  const noteBtn = `<button class="btn-ghost" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; width: 100%;" onclick="editPropertyNote('${row.id}')" title="${hasNote ? row.notes.replace(/"/g,'&quot;') : 'הוסף הערה'}">${hasNote ? '💬 צפה/ערוך' : '-'}</button>`
 
   return `
     <tr class="${mismatch ? 'prop-row-mismatch' : ''}">
@@ -295,10 +364,11 @@ function _propRow(row) {
       <td>${num('equity', row.equity)}</td>
       <td>${num('mortgage', row.mortgage)}</td>
       <td><select class="prop-input" onchange="onPropertyRowChange('${row.id}','track',this.value)">${trackOpts}</select></td>
-      <td><input type="text" class="prop-input" value="${(row.notes||'').replace(/"/g,'&quot;')}" onchange="onPropertyRowChange('${row.id}','notes',this.value)" placeholder="הערה"></td>
-      <td><button class="btn-ghost" onclick="deletePropertyPayment('${row.id}')" style="font-size:.75rem;padding:.25rem .55rem;color:var(--expense)">🗑</button></td>
+      <td style="text-align:center;">${noteBtn}</td>
+      <td><button class="btn-ghost" onclick="deletePropertyPayment('${row.id}')" style="font-size:.75rem;padding:.25rem .55rem;color:var(--expense)" title="מחק שורה">🗑</button></td>
     </tr>`
 }
+
 function _propMortgageCard(t, mort, mortgageRemaining, monthsLeft, p) {
   const cat = p.mortgageCategoryId ? getCategoryById(p.mortgageCategoryId) : null
   const paidPct = t.totalMortgage > 0 ? Math.min(100, (mort.total / t.totalMortgage) * 100) : 0
@@ -533,25 +603,25 @@ function importPropertyXlsx(file) {
         let rawTypeStr = ''
         
         for (const k of Object.keys(r)) {
-          const key = String(k).trim()
+          const key = String(k).trim().toLowerCase()
           const v = r[k]
           
-          if (/מועד/.test(key) || /due.?date/i.test(key))         row.dueDate    = _xlsxToIso(v)
-          else if (/תאריך\s*תשלום/.test(key) || /paid.?date/i.test(key)) row.paidDate = _xlsxToIso(v)
-          else if (/תשלום\/?פעולה/.test(key) || /^type$/i.test(key)) {
+          if (key.includes('מועד') || /due.?date/i.test(key)) row.dueDate = _xlsxToIso(v)
+          else if ((key.includes('תאריך') && key.includes('תשלום')) || /paid.?date/i.test(key)) row.paidDate = _xlsxToIso(v)
+          else if ((key.includes('תשלום') && key.includes('פעולה')) || /^type$/i.test(key)) {
             row.type = _propTypeFromHebrew(v)
             rawTypeStr = String(v).trim()
           }
-          else if (/מס.*תשלום/.test(key) || /payment.?(no|num)/i.test(key)) {
+          else if ((key.includes('מס') && key.includes('תשלום')) || /payment.?(no|num)/i.test(key)) {
             const n = parseInt(String(v).replace(/\D/g, ''), 10)
             row.paymentNumber = isFinite(n) ? n : null
           }
-          else if (/סכום/.test(key) || /^amount$/i.test(key))           row.amount     = _xlsxToNumber(v)
-          else if (/שולם.*בפועל/.test(key) || /paid.?amount/i.test(key))  row.paidAmount = _xlsxToNumber(v)
-          else if (/הון\s*עצמי/.test(key) || /^equity$/i.test(key))        row.equity     = _xlsxToNumber(v)
-          else if (/משכנתא/.test(key) || /^mortgage$/i.test(key))         row.mortgage   = _xlsxToNumber(v)
-          else if (/הערות?/.test(key) || /^notes?$/i.test(key))           row.notes      = String(v || '')
-          else if (/מסלול/.test(key) || /^track$/i.test(key))               row.track      = _propTrackFromHebrew(v)
+          else if (key.includes('סכום') || /^amount$/i.test(key)) row.amount = _xlsxToNumber(v)
+          else if (key.includes('שולם') || /paid.?amount/i.test(key)) row.paidAmount = _xlsxToNumber(v)
+          else if ((key.includes('הון') && key.includes('עצמי')) || /^equity$/i.test(key)) row.equity = _xlsxToNumber(v)
+          else if (key.includes('משכנתא') || /^mortgage$/i.test(key)) row.mortgage = _xlsxToNumber(v)
+          else if (key.includes('הער') || /^notes?$/i.test(key)) row.notes = String(v || '')
+          else if (key.includes('מסלול') || /^track$/i.test(key)) row.track = _propTrackFromHebrew(v)
         }
         
         // סינון חזק לשורות סיכום ריקות לחלוטין
