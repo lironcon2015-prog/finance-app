@@ -121,7 +121,8 @@ function _updateDriveLastInfo() {
 async function _driveReq(method, url, body, contentType) {
   const headers = { Authorization: 'Bearer ' + _driveToken }
   if (contentType) headers['Content-Type'] = contentType
-  const resp = await fetch(url, { method, headers, body })
+  // הוספת cache: 'no-store' כדי להכריח את הדפדפן להוריד קובץ מעודכן מהענן
+  const resp = await fetch(url, { method, headers, body, cache: 'no-store' })
   if (resp.status === 401) {
     _driveToken = null
     _renderDriveUI()
