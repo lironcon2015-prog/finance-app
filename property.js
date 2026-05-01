@@ -40,19 +40,16 @@ function _propEmptyPayment() {
 function _propertyTotals() {
   const p = getProperty()
   const pays = getPropertyPayments()
-  const totalDue        = pays.reduce((s, x) => s + (Number(x.amount) || 0), 0)
+  const sumPays         = pays.reduce((s, x) => s + (Number(x.amount) || 0), 0)
+  const totalDue        = sumPays > 0 ? sumPays : (Number(p.basePrice) || 0)
   const totalPaid       = pays.reduce((s, x) => s + (Number(x.paidAmount) || 0), 0)
   const totalEquity     = pays.reduce((s, x) => s + (Number(x.equity) || 0), 0)
   const totalMortgage   = pays.reduce((s, x) => s + (Number(x.mortgage) || 0), 0)
   const purchaseTax     = pays.filter(x => x.type === 'tax').reduce((s, x) => s + (Number(x.amount) || 0), 0)
   const priceExclTax    = totalDue - purchaseTax
-  // Equity ratio: out of money actually deployed (equity + mortgage), how much
-  // came from the user's own pocket. This is the meaningful KPI for the bank.
   const denominator     = totalEquity + totalMortgage
   const equityRatio     = denominator > 0 ? totalEquity / denominator : 0
   const remaining       = totalDue - totalPaid
-  // "Next payment due" = nearest unpaid by dueDate (today or future first; if
-  // none, the closest overdue).
   const today = _iso(new Date())
   const unpaid = pays.filter(x => !x.paidDate && (Number(x.amount) || 0) > 0)
   const future = unpaid.filter(x => x.dueDate && x.dueDate >= today).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
@@ -60,7 +57,6 @@ function _propertyTotals() {
   const nextPayment = future[0] || overdue[0] || null
   return { p, pays, totalDue, totalPaid, purchaseTax, priceExclTax, totalEquity, totalMortgage, equityRatio, remaining, nextPayment }
 }
-
 function _propertyStatus(row) {
   const today = _iso(new Date())
   const paid = (Number(row.paidAmount) || 0) > 0 && row.paidDate
@@ -152,13 +148,14 @@ function _propSetupCard(p, cats) {
           <input type="text" value="${p.name||''}" oninput="onPropertyMetaChange('name', this.value)" class="form-input"></label>
         <label class="form-row"><span class="form-label">כתובת</span>
           <input type="text" value="${p.address||''}" oninput="onPropertyMetaChange('address', this.value)" class="form-input" placeholder="עיר, רחוב, מספר"></label>
+        <label class="form-row"><span class="form-label">מחיר חוזה מקורי</span>
+          <input type="text" inputmode="numeric" value="${p.basePrice ? Number(p.basePrice).toLocaleString('en-US') : ''}" onfocus="this.value=this.value.replace(/,/g,'')" onblur="this.value=Number(this.value.replace(/,/g,'')||0).toLocaleString('en-US'); onPropertyMetaChange('basePrice', this.value.replace(/,/g,''))" class="form-input" style="direction:ltr;text-align:left" placeholder="0"></label>
         <label class="form-row"><span class="form-label">תאריך חתימה</span>
           <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy"
             value="${_isoToDmy(p.signedAt||'')}" oninput="_onDateMaskInput(this)"
             onchange="onPropertyMetaChange('signedAt', _dmyToIso(this.value))" class="form-input"></label>
         <label class="form-row"><span class="form-label">שווי שוק נוכחי (אופציונלי)</span>
-          <input type="number" min="0" step="1000" value="${p.marketValue||''}" placeholder="0"
-            onchange="onPropertyMetaChange('marketValue', this.value)" class="form-input"></label>
+          <input type="text" inputmode="numeric" value="${p.marketValue ? Number(p.marketValue).toLocaleString('en-US') : ''}" onfocus="this.value=this.value.replace(/,/g,'')" onblur="this.value=Number(this.value.replace(/,/g,'')||0).toLocaleString('en-US'); onPropertyMetaChange('marketValue', this.value.replace(/,/g,''))" class="form-input" style="direction:ltr;text-align:left" placeholder="0"></label>
         <label class="form-row"><span class="form-label">קטגוריית תשלומי משכנתא חודשיים</span>
           <select onchange="onPropertyMetaChange('mortgageCategoryId', this.value)" class="form-input">${catOpts}</select></label>
         <label class="form-row" style="grid-column: 1 / -1"><span class="form-label">הערות כלליות לנכס</span>
@@ -268,12 +265,10 @@ function _propRow(row) {
   const trackOpts = Object.entries(PROPERTY_TRACKS)
     .map(([k, v]) => `<option value="${k}" ${row.track===k?'selected':''}>${v.label}</option>`).join('')
 
-  // Mismatch warning: equity + mortgage ≠ paidAmount
   const sum = (Number(row.equity) || 0) + (Number(row.mortgage) || 0)
   const paid = Number(row.paidAmount) || 0
   const mismatch = paid > 0 && Math.abs(sum - paid) > 1
 
-  // Date variance — paidDate vs dueDate
   let variance = ''
   if (row.dueDate && row.paidDate && row.dueDate !== row.paidDate) {
     const days = Math.round((new Date(row.paidDate) - new Date(row.dueDate)) / 86400000)
@@ -283,7 +278,7 @@ function _propRow(row) {
     }
   }
 
-  const num = (k, val) => `<input type="number" class="prop-input" min="0" step="100" value="${val||''}" onchange="onPropertyRowChange('${row.id}','${k}',this.value)" placeholder="0">`
+  const num = (k, val) => `<input type="text" inputmode="numeric" class="prop-input" value="${val ? Number(val).toLocaleString('en-US') : ''}" onfocus="this.value=this.value.replace(/,/g,'')" onblur="this.value=Number(this.value.replace(/,/g,'')||0).toLocaleString('en-US'); onPropertyRowChange('${row.id}','${k}',this.value.replace(/,/g,''))" placeholder="0">`
   const date = (k, val) => `<input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" class="prop-input" value="${_isoToDmy(val||'')}" oninput="_onDateMaskInput(this)" onchange="onPropertyRowChange('${row.id}','${k}',_dmyToIso(this.value))">`
 
   return `
@@ -293,7 +288,7 @@ function _propRow(row) {
       <td>${date('paidDate', row.paidDate)}${variance}</td>
       <td>
         <select class="prop-input" onchange="onPropertyRowChange('${row.id}','type',this.value)">${typeOpts}</select>
-        <input type="number" class="prop-input" min="0" step="1" value="${row.paymentNumber||''}" onchange="onPropertyRowChange('${row.id}','paymentNumber',this.value)" placeholder="#" style="margin-top:.2rem;width:4rem">
+        <input type="number" class="prop-input" min="0" step="1" value="${row.paymentNumber||''}" onchange="onPropertyRowChange('${row.id}','paymentNumber',this.value)" placeholder="#" style="margin-top:.2rem;width:4rem;text-align:right">
       </td>
       <td>${num('amount', row.amount)}</td>
       <td>${num('paidAmount', row.paidAmount)}</td>
@@ -304,7 +299,6 @@ function _propRow(row) {
       <td><button class="btn-ghost" onclick="deletePropertyPayment('${row.id}')" style="font-size:.75rem;padding:.25rem .55rem;color:var(--expense)">🗑</button></td>
     </tr>`
 }
-
 function _propMortgageCard(t, mort, mortgageRemaining, monthsLeft, p) {
   const cat = p.mortgageCategoryId ? getCategoryById(p.mortgageCategoryId) : null
   const paidPct = t.totalMortgage > 0 ? Math.min(100, (mort.total / t.totalMortgage) * 100) : 0
@@ -552,8 +546,11 @@ function importPropertyXlsx(file) {
           else if (/^הערות?$/.test(key) || /^notes?$/i.test(key))           row.notes      = String(v || '')
           else if (/מסלול/.test(key) || /^track$/i.test(key))               row.track      = _propTrackFromHebrew(v)
         }
-        // Skip the totals row at bottom (no due date, no paid date, no type label).
+        
+        // סינון חזק לשורות סיכום ריקות
         if (!row.dueDate && !row.paidDate && row.amount === 0 && row.paidAmount === 0) continue
+        if (row.amount === 0 && row.paidAmount === 0 && row.equity === 0 && row.mortgage === 0 && !row.dueDate) continue
+        
         mapped.push(row)
       }
       if (mapped.length === 0) { alert('לא נמצאו שורות תקפות באקסל'); return }
@@ -568,7 +565,6 @@ function importPropertyXlsx(file) {
   }
   reader.readAsArrayBuffer(file)
 }
-
 function _xlsxToIso(v) {
   if (!v) return ''
   if (v instanceof Date) {
