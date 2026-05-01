@@ -2,6 +2,7 @@ const DRIVE_CLIENT_ID = '702808266000-m1gro990l5uflm9o5jj56ut6n0b760il.apps.goog
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const DRIVE_FILE_NAME = 'finance-app-backup.json'
 
+let _pendingDriveAction = null
 let _driveToken = null
 let _driveTokenClient = null
 let _driveSilentMode = false
@@ -15,31 +16,24 @@ function _initDriveClient() {
       const wasSilent = _driveSilentMode
       _driveSilentMode = false
       if (resp.error) {
-        // Silent attempts routinely fail when the cached token TTL expired
-        // or the Google session lapsed. Escalate immediately to an
-        // interactive popup so the user gets a single-tap path to recovery
-        // — they explicitly asked for the login screen to appear on entry.
-        if (wasSilent) {
-          _showDriveBoot('🔑 פותח חלון התחברות ל-Google…', 'info', null)
-          try {
-            _driveTokenClient.requestAccessToken()
-          } catch {
-            _renderDriveBootCTA(resp.error)
-          }
-        } else {
-          _renderDriveBootCTA(resp.error)
-        }
+        _renderDriveBootCTA('נדרש חיבור מחדש ל-Google')
         return
       }
       _driveToken = resp.access_token
-      // Once we have a token, opt the user into silent re-connect on every
-      // future load; first sign-in is the only manual step ever required.
       localStorage.setItem('driveAutoConnect', '1')
       _renderDriveUI()
-      // Whether the token came in silently or via interactive popup, the
-      // user wants the same outcome: pull the latest backup automatically.
-      _showDriveBoot('☁️ מחובר — שואב גיבוי…', 'info', null)
-      _driveAutoRestoreLatest()
+      
+      // טיפול בפעולות שהמתינו לאישור ההתחברות
+      if (_pendingDriveAction === 'backup') {
+        _pendingDriveAction = null
+        driveBackup()
+      } else if (_pendingDriveAction === 'restore') {
+        _pendingDriveAction = null
+        driveRestore()
+      } else {
+        _showDriveBoot('☁️ מחובר — שואב גיבוי…', 'info', null)
+        _driveAutoRestoreLatest()
+      }
     },
   })
 }
@@ -62,9 +56,6 @@ function driveSignOut() {
 // and pulls the latest backup. First-time users still need the manual
 // "התחבר עם Google" click — Google's consent flow requires a user gesture.
 function driveAutoConnectOnBoot() {
-  // Backfill the auto flag for users who connected pre-v1.18.0: the presence
-  // of any Drive backup state proves prior consent, so we can opt them into
-  // silent re-connect without making them click sign-in again.
   if (localStorage.getItem('driveAutoConnect') !== '1') {
     if (localStorage.getItem('driveBackupFileId') || localStorage.getItem('driveBackupAt')) {
       localStorage.setItem('driveAutoConnect', '1')
@@ -72,8 +63,6 @@ function driveAutoConnectOnBoot() {
       return
     }
   }
-  // Banner up immediately so the user always sees that auto-sync is running,
-  // even if the silent token call fails or the GSI script never finishes.
   _showDriveBoot('☁️ מתחבר ל-Drive…', 'info', null)
   let tries = 0
   const tick = () => {
@@ -82,17 +71,10 @@ function driveAutoConnectOnBoot() {
       _driveSilentMode = true
       try {
         _driveTokenClient.requestAccessToken({ prompt: '' })
-        // Watchdog: GSI sometimes neither succeeds nor fires the error
-        // callback for silent attempts (network hiccup, blocked third-party
-        // cookies, expired session). After 3.5s we give up on silent and
-        // escalate to an interactive popup so the user isn't stuck staring
-        // at a "מתחבר…" banner forever.
         setTimeout(() => {
           if (_driveSilentMode && !_driveToken) {
             _driveSilentMode = false
-            _showDriveBoot('🔑 פותח חלון התחברות ל-Google…', 'info', null)
-            try { _driveTokenClient.requestAccessToken() }
-            catch { _renderDriveBootCTA('זמן ההמתנה אזל') }
+            _renderDriveBootCTA('זמן ההמתנה לחיבור שקט אזל')
           }
         }, 3500)
       } catch (e) {
@@ -107,7 +89,6 @@ function driveAutoConnectOnBoot() {
   }
   tick()
 }
-
 // CTA banner shown when no automatic path can complete the connection — the
 // user has to tap to grant the popup permission. Stays sticky until they
 // click or dismiss; a tap on "התחבר" reuses driveSignIn (interactive request)
@@ -162,7 +143,11 @@ async function _driveFindFile() {
 }
 
 async function driveBackup() {
-  if (!_driveToken) { driveSignIn(); return }
+  if (!_driveToken) { 
+    _pendingDriveAction = 'backup'
+    driveSignIn()
+    return 
+  }
   _showDriveStatus('מגבה…', false)
   try {
     const payload = JSON.stringify({
@@ -216,9 +201,12 @@ async function driveBackup() {
     _showDriveStatus('שגיאה: ' + e.message, true)
   }
 }
-
 async function driveRestore() {
-  if (!_driveToken) { driveSignIn(); return }
+  if (!_driveToken) { 
+    _pendingDriveAction = 'restore'
+    driveSignIn()
+    return 
+  }
   if (!confirm('שחזור יחליף את כל הנתונים הנוכחיים. להמשיך?')) return
   _showDriveStatus('משחזר…', false)
   try {
