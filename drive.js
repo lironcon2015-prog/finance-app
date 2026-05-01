@@ -23,7 +23,6 @@ function _initDriveClient() {
       localStorage.setItem('driveAutoConnect', '1')
       _renderDriveUI()
       
-      // טיפול בפעולות שהמתינו לאישור ההתחברות
       if (_pendingDriveAction === 'backup') {
         _pendingDriveAction = null
         driveBackup()
@@ -46,15 +45,10 @@ function driveSignIn() {
 function driveSignOut() {
   if (_driveToken) google.accounts.oauth2.revoke(_driveToken)
   _driveToken = null
-  // Disable auto-connect so we don't immediately re-authenticate next load.
   localStorage.removeItem('driveAutoConnect')
   _renderDriveUI()
 }
 
-// Called once on app boot; if the user has connected before, silently
-// re-authenticates against Google (no popup if their Google session is live)
-// and pulls the latest backup. First-time users still need the manual
-// "התחבר עם Google" click — Google's consent flow requires a user gesture.
 function driveAutoConnectOnBoot() {
   if (localStorage.getItem('driveAutoConnect') !== '1') {
     if (localStorage.getItem('driveBackupFileId') || localStorage.getItem('driveBackupAt')) {
@@ -89,10 +83,7 @@ function driveAutoConnectOnBoot() {
   }
   tick()
 }
-// CTA banner shown when no automatic path can complete the connection — the
-// user has to tap to grant the popup permission. Stays sticky until they
-// click or dismiss; a tap on "התחבר" reuses driveSignIn (interactive request)
-// which then runs through the same auto-restore flow on success.
+
 function _renderDriveBootCTA(reason) {
   let el = document.getElementById('driveBanner')
   if (!el) { el = document.createElement('div'); el.id = 'driveBanner'; document.body.appendChild(el) }
@@ -122,7 +113,6 @@ async function _driveReq(method, url, body, contentType) {
   const headers = { Authorization: 'Bearer ' + _driveToken }
   if (contentType) headers['Content-Type'] = contentType
   
-  // URL Cache-Busting
   const cacheBuster = (url.includes('?') ? '&' : '?') + '_t=' + Date.now()
   const finalUrl = method === 'GET' ? url + cacheBuster : url
 
@@ -136,15 +126,32 @@ async function _driveReq(method, url, body, contentType) {
 }
 
 async function _driveFindFile() {
-  const saved = localStorage.getItem('driveBackupFileId')
-  if (saved) {
-    const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files/${saved}?fields=id,modifiedTime`)
-    if (r.ok) return r.json()
-  }
+  // סריקת ענן למציאת הקובץ הכי חדש שקיים כדי לפתור כפילויות (Split Brain)
   const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`)
-  const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&orderBy=modifiedTime+desc&pageSize=1`)
+  const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&orderBy=modifiedTime+desc&pageSize=5`)
   const data = await r.json()
-  return data.files?.[0] || null
+  const searchLatest = data.files?.[0] || null
+  
+  // בדיקת הקובץ שהמכשיר הזה ננעל עליו
+  const savedId = localStorage.getItem('driveBackupFileId')
+  let savedFile = null
+  if (savedId) {
+    try {
+      const r2 = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files/${savedId}?fields=id,modifiedTime`)
+      if (r2.ok) savedFile = await r2.json()
+    } catch (e) {}
+  }
+
+  // בחירת הקובץ העדכני ביותר מביניהם
+  let bestFile = savedFile || searchLatest
+  if (savedFile && searchLatest) {
+    const tSaved = new Date(savedFile.modifiedTime).getTime()
+    const tSearch = new Date(searchLatest.modifiedTime).getTime()
+    if (tSearch > tSaved) bestFile = searchLatest
+  }
+
+  if (bestFile) localStorage.setItem('driveBackupFileId', bestFile.id)
+  return bestFile
 }
 
 async function driveBackup() {
@@ -166,46 +173,49 @@ async function driveBackup() {
       recurringGroups:     DB.get('finManualRecurringGroups', []),
       recurringHidden:     DB.get('finRecurringHidden', []),
       recurringIgnoreOut:  DB.get('finRecurringIgnoreOutliers', []),
-      property:                DB.get('finProperty', null),
-      propertyPayments:        DB.get('finPropertyPayments', []),
-      propertyManualMortgage:  DB.get('finPropertyManualMortgage', []),
-      exportedAt:              new Date().toISOString(),
+      property:            DB.get('finProperty', null),
+      propertyPayments:    DB.get('finPropertyPayments', []),
+      propertyManualMortgage: DB.get('finPropertyManualMortgage', []),
+      exportedAt:          new Date().toISOString(),
     }, null, 2)
 
     const existing = await _driveFindFile()
-    let fileId
+    let fileResult
 
     if (existing) {
+      // בקשת השדות id,modifiedTime מגוגל דרייב בתשובה
       const r = await _driveReq(
         'PATCH',
-        `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media`,
+        `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media&fields=id,modifiedTime`,
         payload,
         'application/json'
       )
       if (!r.ok) throw new Error(await r.text())
-      fileId = existing.id
+      fileResult = await r.json()
     } else {
       const meta = JSON.stringify({ name: DRIVE_FILE_NAME, mimeType: 'application/json' })
       const boundary = 'fb_boundary'
       const body = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${payload}\r\n--${boundary}--`
       const r = await _driveReq(
         'POST',
-        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime',
         body,
         `multipart/related; boundary=${boundary}`
       )
       if (!r.ok) throw new Error(await r.text())
-      fileId = (await r.json()).id
+      fileResult = await r.json()
     }
 
-    localStorage.setItem('driveBackupFileId', fileId)
-    localStorage.setItem('driveBackupAt', new Date().toISOString())
+    localStorage.setItem('driveBackupFileId', fileResult.id)
+    // קריטי: שמירת זמן העדכון מגוגל עצמה, ולא מהשעון המקומי
+    localStorage.setItem('driveBackupAt', fileResult.modifiedTime)
     _updateDriveLastInfo()
     _showDriveStatus('✅ גובה בהצלחה', false)
   } catch (e) {
     _showDriveStatus('שגיאה: ' + e.message, true)
   }
 }
+
 async function driveRestore() {
   if (!_driveToken) { 
     _pendingDriveAction = 'restore'
@@ -248,15 +258,12 @@ async function _driveCheckNewBackup() {
     if (!file) return
     localStorage.setItem('driveBackupFileId', file.id)
     const localAt = localStorage.getItem('driveBackupAt')
-    if (!localAt || new Date(file.modifiedTime) > new Date(localAt)) {
+    if (!localAt || new Date(file.modifiedTime).getTime() > new Date(localAt).getTime()) {
       _showDriveBanner(file.modifiedTime)
     }
   } catch {}
 }
 
-// Silent restore on boot — only runs after a successful auto-reconnect, and
-// only when the cloud copy is strictly newer than the local one. Reloads
-// after writing so every screen renders against the freshly restored data.
 async function _driveAutoRestoreLatest() {
   try {
     const file = await _driveFindFile()
@@ -264,14 +271,16 @@ async function _driveAutoRestoreLatest() {
       _showDriveBoot('☁️ מחובר ל-Drive · אין עדיין גיבוי בענן', 'info', 5000)
       return
     }
-    localStorage.setItem('driveBackupFileId', file.id)
     const localAt = localStorage.getItem('driveBackupAt')
-    if (localAt && new Date(file.modifiedTime) <= new Date(localAt)) {
+    
+    // השוואת זמנים מדוייקת (מתבססת על זמן גוגל שתמיד אחיד)
+    if (localAt && new Date(file.modifiedTime).getTime() <= new Date(localAt).getTime()) {
       _updateDriveLastInfo()
       const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
       _showDriveBoot(`✅ מחובר ל-Drive · גיבוי עדכני (${dt})`, 'ok', 5000)
       return
     }
+    
     const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`)
     if (!r.ok) {
       _showDriveBoot('⚠️ שגיאה בקריאת הגיבוי מ-Drive', 'err', 7000)
@@ -291,6 +300,7 @@ async function _driveAutoRestoreLatest() {
     if (data.property)           DB.set('finProperty',                data.property)
     if (data.propertyPayments)   DB.set('finPropertyPayments',        data.propertyPayments)
     if (data.propertyManualMortgage) DB.set('finPropertyManualMortgage', data.propertyManualMortgage)
+    
     localStorage.setItem('driveBackupAt', new Date(file.modifiedTime).toISOString())
     const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
     _showDriveBoot(`☁️ סונכרן גיבוי חדש מ-Drive (${dt}) — מרענן…`, 'ok', null)
