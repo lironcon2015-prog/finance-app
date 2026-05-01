@@ -19,7 +19,6 @@ const PROPERTY_TYPES = {
 }
 
 function getProperty() {
-  // נוסף מערך additionalCosts עבור עלויות נוספות לנכס
   return DB.get('finProperty', { name: 'דירה בנתניה', signedAt: '', basePrice: 0, mortgageCategoryId: '', additionalCosts: [] })
 }
 function saveProperty(p) { DB.set('finProperty', p) }
@@ -44,14 +43,10 @@ function _propertyTotals() {
   
   // סך העלויות הנוספות
   const addCosts = (p.additionalCosts || []).reduce((s, c) => s + (Number(c.amount) || 0), 0)
-  // סך מס הרכישה מתוך טבלת התשלומים
-  const purchaseTax = pays.filter(x => x.type === 'tax').reduce((s, x) => s + (Number(x.amount) || 0), 0)
-  
   const basePrice = Number(p.basePrice) || 0
   
-  // מחיר כולל = חוזה + עלויות נוספות + מס רכישה
-  const totalDue = basePrice + addCosts + purchaseTax
-  const priceExclTax = basePrice + addCosts
+  // מחיר כולל = חוזה + עלויות נוספות (ללא סכימה אוטומטית של מס רכישה מהטבלה)
+  const totalDue = basePrice + addCosts
 
   const totalPaid       = pays.reduce((s, x) => s + (Number(x.paidAmount) || 0), 0)
   const totalEquity     = pays.reduce((s, x) => s + (Number(x.equity) || 0), 0)
@@ -66,7 +61,7 @@ function _propertyTotals() {
   const overdue = unpaid.filter(x => x.dueDate && x.dueDate < today).sort((a, b) => b.dueDate.localeCompare(a.dueDate))
   const nextPayment = future[0] || overdue[0] || null
   
-  return { p, pays, totalDue, totalPaid, purchaseTax, priceExclTax, totalEquity, totalMortgage, equityRatio, remaining, nextPayment }
+  return { p, pays, totalDue, totalPaid, totalEquity, totalMortgage, equityRatio, remaining, nextPayment }
 }
 
 function _propertyStatus(row) {
@@ -171,7 +166,7 @@ function _propSetupCard(p, cats) {
     
   const costsHtml = (p.additionalCosts || []).map((c, i) => `
     <div style="display:flex; gap:0.5rem; margin-bottom: 0.35rem; align-items:center;">
-      <input type="text" class="form-input" placeholder="שם העלות (למשל: עו''ד)" value="${c.name.replace(/"/g,'&quot;')}" onchange="updatePropCost(${i}, 'name', this.value)">
+      <input type="text" class="form-input" placeholder="שם העלות (למשל: מס רכישה / עו''ד)" value="${c.name.replace(/"/g,'&quot;')}" onchange="updatePropCost(${i}, 'name', this.value)">
       <input type="number" class="form-input" placeholder="סכום" value="${c.amount ? c.amount : ''}" onchange="updatePropCost(${i}, 'amount', this.value)" style="width: 110px;">
       <button class="btn-ghost" onclick="removePropCost(${i})" style="padding: 0.2rem 0.5rem; color: var(--expense);" title="מחק עלות">✕</button>
     </div>
@@ -196,7 +191,7 @@ function _propSetupCard(p, cats) {
         <label class="form-row"><span class="form-label">תאריך חתימה</span>
           <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy"
             value="${_isoToDmy(p.signedAt||'')}" oninput="_onDateMaskInput(this)"
-            onchange="onPropertyMetaChange('signedAt', _dmyToIso(this.value))" class="form-input"></label>
+            onchange="onPropertyMetaChange('signedAt', _dmyToIso(this.value))" class="form-input" style="min-width: 8.5rem; text-align: center;"></label>
         <label class="form-row"><span class="form-label">שווי שוק נוכחי (אופציונלי)</span>
           <input type="text" inputmode="numeric" value="${p.marketValue ? Number(p.marketValue).toLocaleString('en-US') : ''}" onfocus="this.value=this.value.replace(/,/g,'')" onblur="this.value=Number(this.value.replace(/,/g,'')||0).toLocaleString('en-US'); onPropertyMetaChange('marketValue', this.value.replace(/,/g,''))" class="form-input" style="direction:ltr;text-align:left" placeholder="0"></label>
         <label class="form-row"><span class="form-label">קטגוריית תשלומי משכנתא חודשיים</span>
@@ -204,7 +199,7 @@ function _propSetupCard(p, cats) {
         
         <label class="form-row" style="grid-column: 1 / -1; margin-top:0.5rem; background: var(--bg-elevated); padding: 0.8rem; border-radius: 8px;">
           <span class="form-label" style="display:flex; justify-content:space-between; margin-bottom:0.75rem;">
-            <span>עלויות נוספות לנכס (עו"ד, תיווך, שמאי וכו')</span>
+            <span>עלויות נוספות לנכס (מס רכישה, עו"ד, תיווך, שמאי וכו')</span>
             <button class="btn-ghost" onclick="addPropCost()" style="font-size:0.75rem; padding: 0.15rem 0.5rem;">+ הוסף עלות</button>
           </span>
           <div id="propAdditionalCosts">
@@ -232,7 +227,7 @@ function _propSummaryCards(t) {
       <div class="prop-summary-card">
         <div class="prop-summary-label">מחיר כולל (כולל מיסים וע.נוספות)</div>
         <div class="prop-summary-val">${formatCurrency(t.totalDue)}</div>
-        <div class="prop-summary-sub">ללא מס רכישה: ${formatCurrency(t.priceExclTax)}</div>
+        <div class="prop-summary-sub">מחיר חוזה בסיס: ${formatCurrency(Number(t.p.basePrice) || 0)}</div>
       </div>
       <div class="prop-summary-card">
         <div class="prop-summary-label">שולם בפועל</div>
@@ -282,7 +277,7 @@ function _propPaymentsTable(t) {
   return `
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>טבלת תשלומים</span>
+        <span>טבלת תשלומים (מהקבלן/יזם)</span>
         <button class="btn-primary" onclick="addPropertyPayment()" style="padding:.4rem .9rem;font-size:.85rem">+ הוסף שורה</button>
       </div>
       <div style="overflow-x:auto">
@@ -345,10 +340,10 @@ function _propRow(row) {
   }
 
   const num = (k, val) => `<input type="text" inputmode="numeric" class="prop-input" value="${val ? Number(val).toLocaleString('en-US') : ''}" onfocus="this.value=this.value.replace(/,/g,'')" onblur="this.value=Number(this.value.replace(/,/g,'')||0).toLocaleString('en-US'); onPropertyRowChange('${row.id}','${k}',this.value.replace(/,/g,''))" placeholder="0">`
-  const date = (k, val) => `<input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" class="prop-input" value="${_isoToDmy(val||'')}" oninput="_onDateMaskInput(this)" onchange="onPropertyRowChange('${row.id}','${k}',_dmyToIso(this.value))" style="min-width: 6.5rem; text-align: center;">`
+  const date = (k, val) => `<input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" class="prop-input" value="${_isoToDmy(val||'')}" oninput="_onDateMaskInput(this)" onchange="onPropertyRowChange('${row.id}','${k}',_dmyToIso(this.value))" style="min-width: 8.5rem; text-align: center;">`
   
   const hasNote = !!row.notes && row.notes.trim() !== ''
-  const noteBtn = `<button class="btn-ghost" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; width: 100%;" onclick="editPropertyNote('${row.id}')" title="${hasNote ? row.notes.replace(/"/g,'&quot;') : 'הוסף הערה'}">${hasNote ? '💬 צפה/ערוך' : '-'}</button>`
+  const noteBtn = `<button class="btn-ghost" style="padding: 0.15rem 0; width: 100%; font-size: 1.15rem; line-height: 1; min-height: unset; border: none; background: transparent;" onclick="editPropertyNote('${row.id}')" title="${hasNote ? row.notes.replace(/"/g,'&quot;') : 'הוסף הערה'}">${hasNote ? '💬' : '-'}</button>`
 
   return `
     <tr class="${mismatch ? 'prop-row-mismatch' : ''}">
@@ -364,7 +359,7 @@ function _propRow(row) {
       <td>${num('equity', row.equity)}</td>
       <td>${num('mortgage', row.mortgage)}</td>
       <td><select class="prop-input" onchange="onPropertyRowChange('${row.id}','track',this.value)">${trackOpts}</select></td>
-      <td style="text-align:center;">${noteBtn}</td>
+      <td style="text-align:center; vertical-align: middle;">${noteBtn}</td>
       <td><button class="btn-ghost" onclick="deletePropertyPayment('${row.id}')" style="font-size:.75rem;padding:.25rem .55rem;color:var(--expense)" title="מחק שורה">🗑</button></td>
     </tr>`
 }
@@ -381,7 +376,7 @@ function _propMortgageCard(t, mort, mortgageRemaining, monthsLeft, p) {
   return `
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>תשלומי משכנתא חודשיים</span>
+        <span>תשלומי משכנתא חודשיים (לבנק)</span>
         <button class="btn-ghost" onclick="openMortgagePaidModal()" style="font-size:.85rem;padding:.4rem .9rem">📋 פירוט תשלומים</button>
       </div>
       <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.75rem">${subline}</div>
@@ -600,18 +595,14 @@ function importPropertyXlsx(file) {
       
       for (const r of rows) {
         const row = _propEmptyPayment()
-        let rawTypeStr = ''
         
         for (const k of Object.keys(r)) {
-          const key = String(k).trim().toLowerCase()
+          const key = String(k).trim()
           const v = r[k]
           
           if (key.includes('מועד') || /due.?date/i.test(key)) row.dueDate = _xlsxToIso(v)
           else if ((key.includes('תאריך') && key.includes('תשלום')) || /paid.?date/i.test(key)) row.paidDate = _xlsxToIso(v)
-          else if ((key.includes('תשלום') && key.includes('פעולה')) || /^type$/i.test(key)) {
-            row.type = _propTypeFromHebrew(v)
-            rawTypeStr = String(v).trim()
-          }
+          else if ((key.includes('תשלום') && key.includes('פעולה')) || /^type$/i.test(key)) row.type = _propTypeFromHebrew(v)
           else if ((key.includes('מס') && key.includes('תשלום')) || /payment.?(no|num)/i.test(key)) {
             const n = parseInt(String(v).replace(/\D/g, ''), 10)
             row.paymentNumber = isFinite(n) ? n : null
@@ -624,11 +615,9 @@ function importPropertyXlsx(file) {
           else if (key.includes('מסלול') || /^track$/i.test(key)) row.track = _propTrackFromHebrew(v)
         }
         
-        // סינון חזק לשורות סיכום ריקות לחלוטין
-        if (!row.dueDate && !row.paidDate && row.amount === 0 && row.paidAmount === 0 && row.equity === 0 && row.mortgage === 0) continue
-        
-        // סינון שורות סיכום בתחתית: לשורות אלה אין סוג פעולה חוקי מוגדר, ואין להן מספר תשלום.
-        if (!rawTypeStr && row.paymentNumber === null) continue
+        // סינון שורות ריקות ושורות סיכום בתחתית.
+        // שורה חוקית חייבת להכיל מספר כספי כלשהו באחת מעמודות הכסף!
+        if (!row.amount && !row.paidAmount && !row.equity && !row.mortgage) continue
         
         mapped.push(row)
       }
@@ -649,25 +638,29 @@ function importPropertyXlsx(file) {
 function _xlsxToIso(v) {
   if (!v) return ''
   if (v instanceof Date) {
-    return _iso(v)
+    // חובה להשתמש ב-UTC כדי להתגבר על קפיצות אזורי הזמן של אקסל
+    const y = v.getUTCFullYear()
+    const m = v.getUTCMonth() + 1
+    const d = v.getUTCDate()
+    return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
   }
   const s = String(v).trim()
   if (!s) return ''
-  // Try dd/mm/yyyy first
-  const dmy = _dmyToIso(s)
-  if (dmy) return dmy
-  // Try ISO
-  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`
+  // תפיסה מדויקת של יום/חודש/שנה בצורה של מחרוזת מפורשת
+  const m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2}|\d{4})$/)
+  if (m) {
+    let yy = m[3]
+    if (yy.length === 2) yy = (parseInt(yy, 10) >= 70 ? '19' : '20') + yy
+    return `${yy}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`
+  }
   return ''
 }
 
 function _xlsxToNumber(v) {
   if (typeof v === 'number') return v
   if (!v) return 0
-  // Remove ₪, commas, spaces, dashes that mean "empty"
+  // מחיקת סימני מטבע, פסיקים, רווחים ותאים שמכילים מקף או N/A
   const s = String(v).replace(/[₪,\s]/g, '').replace(/^-+$/, '')
-  // התעלמות מתאים שמכילים N/A
   if (/n\/a/i.test(s)) return 0
   const n = parseFloat(s)
   return isFinite(n) ? n : 0
@@ -675,9 +668,9 @@ function _xlsxToNumber(v) {
 
 function _propTypeFromHebrew(v) {
   const s = String(v || '').trim()
-  if (/^חתימה/.test(s)) return 'signing'
+  if (/חתימה/.test(s)) return 'signing'
   if (/מס\s*רכישה/.test(s)) return 'tax'
-  if (/^תשלום/.test(s)) return 'payment'
+  if (/תשלום/.test(s)) return 'payment'
   if (!s) return 'other'
   return 'other'
 }
