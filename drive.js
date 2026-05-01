@@ -121,8 +121,12 @@ function _updateDriveLastInfo() {
 async function _driveReq(method, url, body, contentType) {
   const headers = { Authorization: 'Bearer ' + _driveToken }
   if (contentType) headers['Content-Type'] = contentType
-  // הוספת cache: 'no-store' כדי להכריח את הדפדפן להוריד קובץ מעודכן מהענן
-  const resp = await fetch(url, { method, headers, body, cache: 'no-store' })
+  
+  // Cache-busting: הוספת חותמת זמן URL כדי להכריח את הדפדפן לדלג על הקאש
+  const cacheBuster = (url.includes('?') ? '&' : '?') + '_t=' + Date.now()
+  const finalUrl = method === 'GET' ? url + cacheBuster : url
+
+  const resp = await fetch(finalUrl, { method, headers, body, cache: 'no-store' })
   if (resp.status === 401) {
     _driveToken = null
     _renderDriveUI()
