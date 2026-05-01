@@ -297,7 +297,19 @@ async function _driveAutoRestoreLatest() {
       _showDriveBoot('⚠️ שגיאה בקריאת הגיבוי מ-Drive', 'err', 7000)
       return
     }
-    const data = await r.json()
+    let data
+    try { data = await r.json() } catch { data = null }
+
+    // אימות מבנה לפני כתיבה: בלי זה payload פגום (למשל מטא-דאטה במקום תוכן)
+    // היה גורם לכל ה-if (data.X) לדלג בשקט — אבל driveBackupAt בכל זאת היה מתקדם,
+    // וכל הרענונים הבאים היו נחשבים "עדכניים" ושום שחזור אמיתי לא היה קורה.
+    const isValid = data && typeof data === 'object' && !Array.isArray(data) &&
+      (Array.isArray(data.transactions) || Array.isArray(data.accounts) || Array.isArray(data.categories))
+    if (!isValid) {
+      _showDriveBoot('⚠️ קובץ הגיבוי בענן פגום — לא בוצע שחזור', 'err', 8000)
+      return
+    }
+
     if (data.transactions)       DB.set('finTransactions',            data.transactions)
     if (data.accounts)           DB.set('finAccounts',                data.accounts)
     if (data.categories)         DB.set('finCategories',              data.categories)
@@ -311,7 +323,8 @@ async function _driveAutoRestoreLatest() {
     if (data.property)           DB.set('finProperty',                data.property)
     if (data.propertyPayments)   DB.set('finPropertyPayments',        data.propertyPayments)
     if (data.propertyManualMortgage) DB.set('finPropertyManualMortgage', data.propertyManualMortgage)
-    
+
+    // מעדכנים את ה-stamp רק אחרי שכתבנו, אחרת כישלון אחד נועל את המכשיר ב"עדכני" לתמיד
     localStorage.setItem('driveBackupAt', new Date(file.modifiedTime).toISOString())
     const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
     _showDriveBoot(`☁️ סונכרן גיבוי חדש מ-Drive (${dt}) — מרענן…`, 'ok', null)
