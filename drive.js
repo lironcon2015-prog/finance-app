@@ -105,7 +105,7 @@ function _renderDriveUI() {
 function _updateDriveLastInfo() {
   const el = document.getElementById('driveLastBackupInfo')
   if (!el) return
-  const at = localStorage.getItem('driveBackupAt')
+  const at = localStorage.getItem('driveLastUploadAt') || localStorage.getItem('driveBackupAt')
   el.textContent = at ? 'גיבוי אחרון: ' + new Date(at).toLocaleString('he-IL') : 'טרם גובה לענן'
 }
 
@@ -207,8 +207,8 @@ async function driveBackup() {
     }
 
     localStorage.setItem('driveBackupFileId', fileResult.id)
-    // קריטי: שמירת זמן העדכון מגוגל עצמה, ולא מהשעון המקומי
-    localStorage.setItem('driveBackupAt', fileResult.modifiedTime)
+    // תיקון: זמן העלאה נשמר בנפרד מזמן שחזור כדי לא לחסום משיכות ממשתמשים אחרים
+    localStorage.setItem('driveLastUploadAt', fileResult.modifiedTime || new Date().toISOString())
     _updateDriveLastInfo()
     _showDriveStatus('✅ גובה בהצלחה', false)
   } catch (e) {
@@ -272,9 +272,20 @@ async function _driveAutoRestoreLatest() {
       return
     }
     const localAt = localStorage.getItem('driveBackupAt')
+    const uploadAt = localStorage.getItem('driveLastUploadAt')
     
-    // השוואת זמנים מדוייקת (מתבססת על זמן גוגל שתמיד אחיד)
-    if (localAt && new Date(file.modifiedTime).getTime() <= new Date(localAt).getTime()) {
+    const fileTime = new Date(file.modifiedTime).getTime()
+    const pullTime = localAt ? new Date(localAt).getTime() : 0
+    const pushTime = uploadAt ? new Date(uploadAt).getTime() : 0
+
+    // מנגנון ניקוי רעלים: אם זמן השחזור נתקע בעתיד בגלל באג ישן, נתעלם ממנו כדי לשחרר את הפקק
+    const isPoisoned = pullTime > Date.now() + 300000
+
+    // הגיבוי נחשב עדכני אם הוא תואם את המשיכה האחרונה (Pull) או ההעלאה האחרונה (Push)
+    const isUpToDateWithPull = !isPoisoned && localAt && fileTime <= pullTime
+    const isUpToDateWithPush = uploadAt && fileTime <= pushTime
+
+    if (isUpToDateWithPull || isUpToDateWithPush) {
       _updateDriveLastInfo()
       const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
       _showDriveBoot(`✅ מחובר ל-Drive · גיבוי עדכני (${dt})`, 'ok', 5000)
