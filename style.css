@@ -113,6 +113,8 @@ input:not([type=color]):not([type=checkbox]), select, textarea {
   width: 100%; direction: rtl; transition: border-color .2s;
 }
 input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+select option { background-color: var(--bg-surface); color: var(--text-primary); }
+.prop-table .prop-input { text-align: left; direction: ltr; padding: .3rem .4rem; }
 .form-label { display: block; font-size: .8rem; color: var(--text-secondary); margin-bottom: .35rem; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 .error-msg { color: var(--expense); font-size: .85rem; margin-top: .5rem; }
