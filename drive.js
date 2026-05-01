@@ -122,7 +122,7 @@ async function _driveReq(method, url, body, contentType) {
   const headers = { Authorization: 'Bearer ' + _driveToken }
   if (contentType) headers['Content-Type'] = contentType
   
-  // Cache-busting: הוספת חותמת זמן URL כדי להכריח את הדפדפן לדלג על הקאש
+  // URL Cache-Busting
   const cacheBuster = (url.includes('?') ? '&' : '?') + '_t=' + Date.now()
   const finalUrl = method === 'GET' ? url + cacheBuster : url
 
@@ -300,8 +300,6 @@ async function _driveAutoRestoreLatest() {
   }
 }
 
-// Boot-time toast for Drive auto-sync. variant: 'info'|'ok'|'err'.
-// autoHideMs=null → sticky (used while we're about to reload).
 function _showDriveBoot(msg, variant, autoHideMs) {
   let el = document.getElementById('driveBanner')
   if (!el) { el = document.createElement('div'); el.id = 'driveBanner'; document.body.appendChild(el) }
