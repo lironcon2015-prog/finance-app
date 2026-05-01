@@ -78,25 +78,41 @@ function _propertyStatus(row) {
 // ===== MORTGAGE PAYMENTS (pulled from existing tx) =====
 // User picks a category; we sum all expense tx in it (negative) up to today,
 // take their absolute value, and report.
-function _mortgagePaid(catId) {
-  if (!catId) return { total: 0, count: 0, monthlyAvg: 0, recurringMonthly: 0 }
+function getPropertyManualMortgage() { return DB.get('finPropertyManualMortgage', []) }
+function savePropertyManualMortgage(list) { DB.set('finPropertyManualMortgage', list) }
+
+// Combines auto-detected tx (filtered by mortgage category) with manual
+// entries the user added — used both for the summary card and the drill
+// modal. Returns a unified list with `source: 'auto'|'manual'`.
+function _mortgagePaymentList(catId) {
   const today = _iso(new Date())
-  const txs = getTransactions().filter(t =>
+  const auto = !catId ? [] : getTransactions().filter(t =>
     t.categoryId === catId &&
     t.date && t.date <= today &&
     (Number(t.amount) || 0) < 0
-  )
-  const total = txs.reduce((s, t) => s + Math.abs(t.amount), 0)
-  // last 3 months avg
+  ).map(t => ({
+    id: t.id, date: t.date, amount: Math.abs(t.amount),
+    vendor: t.vendor || '', notes: '', source: 'auto',
+  }))
+  const manual = getPropertyManualMortgage().map(m => ({
+    id: m.id, date: m.date, amount: Number(m.amount) || 0,
+    vendor: '', notes: m.notes || '', source: 'manual',
+  }))
+  return [...auto, ...manual].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+}
+
+function _mortgagePaid(catId) {
+  const list = _mortgagePaymentList(catId)
+  const total = list.reduce((s, x) => s + (Number(x.amount) || 0), 0)
+  const count = list.length
   const now = new Date()
   const threeMoAgo = _iso(new Date(now.getFullYear(), now.getMonth() - 3, 1))
-  const recent = txs.filter(t => t.date >= threeMoAgo)
-  const monthlyAvg = recent.length > 0 ? recent.reduce((s, t) => s + Math.abs(t.amount), 0) / 3 : 0
-  // recurring smoothed monthly
-  const recurringMonthly = (typeof getRecurring === 'function' ? getRecurring() : [])
+  const recent = list.filter(x => x.date >= threeMoAgo)
+  const monthlyAvg = recent.length > 0 ? recent.reduce((s, x) => s + x.amount, 0) / 3 : 0
+  const recurringMonthly = !catId ? 0 : (typeof getRecurring === 'function' ? getRecurring() : [])
     .filter(r => r.categoryId === catId && r.smoothedMonthly < 0)
     .reduce((s, r) => s + Math.abs(r.smoothedMonthly), 0)
-  return { total, count: txs.length, monthlyAvg, recurringMonthly }
+  return { total, count, monthlyAvg, recurringMonthly, list }
 }
 
 // ===== RENDER =====
@@ -124,14 +140,29 @@ function _propSetupCard(p, cats) {
     .join('')
   return `
     <div class="card">
-      <div class="card-title">פרטי הנכס</div>
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>פרטי הנכס</span>
+        <div style="display:flex;gap:.5rem">
+          <input type="file" id="propXlsxInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="importPropertyXlsx(this.files[0])">
+          <button class="btn-ghost" onclick="document.getElementById('propXlsxInput').click()" style="font-size:.85rem;padding:.4rem .9rem">📥 ייבוא מאקסל</button>
+        </div>
+      </div>
       <div class="prop-setup-grid">
         <label class="form-row"><span class="form-label">שם הנכס</span>
           <input type="text" value="${p.name||''}" oninput="onPropertyMetaChange('name', this.value)" class="form-input"></label>
+        <label class="form-row"><span class="form-label">כתובת</span>
+          <input type="text" value="${p.address||''}" oninput="onPropertyMetaChange('address', this.value)" class="form-input" placeholder="עיר, רחוב, מספר"></label>
         <label class="form-row"><span class="form-label">תאריך חתימה</span>
-          <input type="date" value="${p.signedAt||''}" onchange="onPropertyMetaChange('signedAt', this.value)" class="form-input"></label>
+          <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy"
+            value="${_isoToDmy(p.signedAt||'')}" oninput="_onDateMaskInput(this)"
+            onchange="onPropertyMetaChange('signedAt', _dmyToIso(this.value))" class="form-input"></label>
+        <label class="form-row"><span class="form-label">שווי שוק נוכחי (אופציונלי)</span>
+          <input type="number" min="0" step="1000" value="${p.marketValue||''}" placeholder="0"
+            onchange="onPropertyMetaChange('marketValue', this.value)" class="form-input"></label>
         <label class="form-row"><span class="form-label">קטגוריית תשלומי משכנתא חודשיים</span>
           <select onchange="onPropertyMetaChange('mortgageCategoryId', this.value)" class="form-input">${catOpts}</select></label>
+        <label class="form-row" style="grid-column: 1 / -1"><span class="form-label">הערות כלליות לנכס</span>
+          <textarea rows="2" onchange="onPropertyMetaChange('notes', this.value)" class="form-input" placeholder="הערות לעצמך — קומה, מ״ר, חניות, מחסן…">${p.notes||''}</textarea></label>
       </div>
     </div>`
 }
@@ -253,7 +284,7 @@ function _propRow(row) {
   }
 
   const num = (k, val) => `<input type="number" class="prop-input" min="0" step="100" value="${val||''}" onchange="onPropertyRowChange('${row.id}','${k}',this.value)" placeholder="0">`
-  const date = (k, val) => `<input type="date" class="prop-input" value="${val||''}" onchange="onPropertyRowChange('${row.id}','${k}',this.value)">`
+  const date = (k, val) => `<input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" class="prop-input" value="${_isoToDmy(val||'')}" oninput="_onDateMaskInput(this)" onchange="onPropertyRowChange('${row.id}','${k}',_dmyToIso(this.value))">`
 
   return `
     <tr class="${mismatch ? 'prop-row-mismatch' : ''}">
@@ -275,29 +306,26 @@ function _propRow(row) {
 }
 
 function _propMortgageCard(t, mort, mortgageRemaining, monthsLeft, p) {
-  if (!p.mortgageCategoryId) {
-    return `
-      <div class="card">
-        <div class="card-title">תשלומי משכנתא חודשיים</div>
-        <p style="color:var(--text-muted);font-size:.85rem">בחר קטגוריה למעלה כדי לשלב את ההחזרים החודשיים מתוך מסך ההוצאות.</p>
-      </div>`
-  }
-  const cat = getCategoryById(p.mortgageCategoryId)
+  const cat = p.mortgageCategoryId ? getCategoryById(p.mortgageCategoryId) : null
   const paidPct = t.totalMortgage > 0 ? Math.min(100, (mort.total / t.totalMortgage) * 100) : 0
   const monthsLine = monthsLeft != null && isFinite(monthsLeft) && monthsLeft > 0
     ? `<div class="prop-summary-sub">~${Math.round(monthsLeft)} חודשים בקצב הנוכחי</div>`
     : ''
+  const subline = cat
+    ? `מבוסס על קטגוריה: <b>${cat.icon||''} ${cat.name}</b> + רישומים ידניים. לא כולל את תשלומי הרכישה למעלה.`
+    : 'בחר קטגוריה למעלה כדי לשלב גם החזרים אוטומטיים ממסך ההוצאות. ניתן להזין רישומים ידניים בכל מקרה.'
   return `
     <div class="card">
-      <div class="card-title">תשלומי משכנתא חודשיים</div>
-      <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.75rem">
-        מבוסס על קטגוריה: ${cat ? `<b>${cat.icon||''} ${cat.name}</b>` : '—'} (לא כולל את תשלומי הרכישה למעלה).
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>תשלומי משכנתא חודשיים</span>
+        <button class="btn-ghost" onclick="openMortgagePaidModal()" style="font-size:.85rem;padding:.4rem .9rem">📋 פירוט תשלומים</button>
       </div>
+      <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.75rem">${subline}</div>
       <div class="prop-summary-grid">
-        <div class="prop-summary-card">
-          <div class="prop-summary-label">סך ששולם עד היום</div>
+        <div class="prop-summary-card prop-card-clickable" onclick="openMortgagePaidModal()" title="לחץ לראות את כל התשלומים">
+          <div class="prop-summary-label">סך ששולם עד היום ↗</div>
           <div class="prop-summary-val expense-color">${formatCurrency(mort.total)}</div>
-          <div class="prop-summary-sub">${mort.count} עסקאות</div>
+          <div class="prop-summary-sub">${mort.count} תשלומים</div>
         </div>
         <div class="prop-summary-card">
           <div class="prop-summary-label">החזר חודשי שקול</div>
@@ -374,4 +402,212 @@ function deletePropertyPayment(id) {
   const list = getPropertyPayments().filter(x => x.id !== id)
   savePropertyPayments(list)
   renderProperty()
+}
+
+// ===== MORTGAGE PAID DRILL-DOWN =====
+function openMortgagePaidModal() {
+  _renderMortgagePaidModal()
+  document.getElementById('mortgagePaidModal').classList.add('open')
+}
+function closeMortgagePaidModal() {
+  document.getElementById('mortgagePaidModal').classList.remove('open')
+}
+
+function _renderMortgagePaidModal() {
+  const p = getProperty()
+  const mort = _mortgagePaid(p.mortgageCategoryId)
+  // Group by month for the by-month summary the user asked for.
+  const byMonth = {}
+  for (const x of mort.list) {
+    const ym = (x.date || '').slice(0, 7)
+    if (!ym) continue
+    byMonth[ym] = (byMonth[ym] || 0) + (Number(x.amount) || 0)
+  }
+  const monthsSorted = Object.entries(byMonth).sort((a, b) => b[0].localeCompare(a[0]))
+
+  const monthRows = monthsSorted.length === 0
+    ? `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1.25rem">אין תשלומים</td></tr>`
+    : monthsSorted.map(([ym, sum]) => {
+        const [y, m] = ym.split('-')
+        return `<tr><td>${m}/${y}</td><td style="text-align:end;font-weight:600">${formatCurrency(sum)}</td></tr>`
+      }).join('')
+
+  const detailRows = mort.list.length === 0
+    ? `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:1.25rem">אין תשלומים</td></tr>`
+    : mort.list.map(x => {
+        const srcBadge = x.source === 'manual'
+          ? '<span class="prop-status prop-st-tba">ידני</span>'
+          : '<span class="prop-status prop-st-paid">אוטו׳</span>'
+        const delBtn = x.source === 'manual'
+          ? `<button class="btn-ghost" style="font-size:.75rem;padding:.2rem .55rem;color:var(--expense)" onclick="deleteManualMortgage('${x.id}')">🗑</button>`
+          : ''
+        return `<tr>
+          <td>${formatDate(x.date)}</td>
+          <td>${srcBadge}</td>
+          <td>${x.vendor || x.notes || ''}</td>
+          <td style="text-align:end;font-weight:600">${formatCurrency(x.amount)}</td>
+          <td>${delBtn}</td>
+        </tr>`
+      }).join('')
+
+  const totalMonthly = mort.recurringMonthly || mort.monthlyAvg
+  const today = _iso(new Date())
+  document.getElementById('mortgagePaidBody').innerHTML = `
+    <div class="prop-summary-grid" style="margin-bottom:1rem">
+      <div class="prop-summary-card">
+        <div class="prop-summary-label">סך כולל</div>
+        <div class="prop-summary-val expense-color">${formatCurrency(mort.total)}</div>
+        <div class="prop-summary-sub">${mort.count} תשלומים</div>
+      </div>
+      <div class="prop-summary-card">
+        <div class="prop-summary-label">חודשי שקול</div>
+        <div class="prop-summary-val">${formatCurrency(totalMonthly)}</div>
+        <div class="prop-summary-sub">${mort.recurringMonthly > 0 ? 'מזיהוי הוצאה קבועה' : 'ממוצע 3 חודשים'}</div>
+      </div>
+    </div>
+
+    <div class="card" style="background:rgba(34,197,94,.06);border-color:rgba(34,197,94,.25);margin-bottom:1rem">
+      <div class="card-title" style="font-size:1rem">+ הוסף תשלום ידני</div>
+      <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.6rem">שימושי לתשלומים שנעשו לפני שהתחלת לעקוב באפליקציה.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.6rem;align-items:end">
+        <label class="form-row"><span class="form-label">תאריך</span>
+          <input id="manualMortDate" type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" value="${_isoToDmy(today)}" oninput="_onDateMaskInput(this)" class="form-input"></label>
+        <label class="form-row"><span class="form-label">סכום</span>
+          <input id="manualMortAmount" type="number" min="0" step="100" placeholder="0" class="form-input"></label>
+        <label class="form-row" style="grid-column: span 2"><span class="form-label">הערה</span>
+          <input id="manualMortNotes" type="text" placeholder="לדוגמה: החזר ינואר 2024" class="form-input"></label>
+        <button class="btn-primary" onclick="addManualMortgage()" style="height:2.4rem">הוסף</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns: 1fr 2fr;gap:1.25rem">
+      <div>
+        <h4 style="margin:0 0 .5rem">סיכום חודשי</h4>
+        <table class="data-table">
+          <thead><tr><th>חודש</th><th style="text-align:end">סכום</th></tr></thead>
+          <tbody>${monthRows}</tbody>
+        </table>
+      </div>
+      <div>
+        <h4 style="margin:0 0 .5rem">פירוט תשלומים</h4>
+        <table class="data-table">
+          <thead><tr><th>תאריך</th><th>מקור</th><th>פירוט</th><th style="text-align:end">סכום</th><th></th></tr></thead>
+          <tbody>${detailRows}</tbody>
+        </table>
+      </div>
+    </div>`
+}
+
+function addManualMortgage() {
+  const dateInput = document.getElementById('manualMortDate')
+  const amtInput  = document.getElementById('manualMortAmount')
+  const notesInput= document.getElementById('manualMortNotes')
+  const date = _dmyToIso(dateInput.value)
+  const amount = parseFloat(amtInput.value) || 0
+  if (!date || amount <= 0) { alert('נדרשים תאריך וסכום'); return }
+  const list = getPropertyManualMortgage()
+  list.push({ id: genId(), date, amount, notes: notesInput.value || '' })
+  savePropertyManualMortgage(list)
+  _renderMortgagePaidModal()
+  renderProperty()
+}
+
+function deleteManualMortgage(id) {
+  if (!confirm('למחוק את התשלום?')) return
+  const list = getPropertyManualMortgage().filter(x => x.id !== id)
+  savePropertyManualMortgage(list)
+  _renderMortgagePaidModal()
+  renderProperty()
+}
+
+// ===== EXCEL IMPORT =====
+// Maps the user's Hebrew column names to the schema. Columns may be partial;
+// missing columns are tolerated. Type column maps Hebrew labels → enum.
+function importPropertyXlsx(file) {
+  if (!file) return
+  if (typeof XLSX === 'undefined') { alert('ספריית האקסל לא נטענה'); return }
+  const reader = new FileReader()
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true })
+      const sheet = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false })
+      const mapped = []
+      for (const r of rows) {
+        const row = _propEmptyPayment()
+        for (const k of Object.keys(r)) {
+          const key = String(k).trim()
+          const v = r[k]
+          if (/^מועד$/.test(key) || /due.?date/i.test(key))         row.dueDate    = _xlsxToIso(v)
+          else if (/תאריך\s*תשלום/.test(key) || /paid.?date/i.test(key)) row.paidDate = _xlsxToIso(v)
+          else if (/^תשלום\/?פעולה$/.test(key) || /^type$/i.test(key)) row.type     = _propTypeFromHebrew(v)
+          else if (/מס.*תשלום/.test(key) || /payment.?(no|num)/i.test(key)) {
+            const n = parseInt(String(v).replace(/\D/g, ''), 10)
+            row.paymentNumber = isFinite(n) ? n : null
+          }
+          else if (/^סכום$/.test(key) || /^amount$/i.test(key))           row.amount     = _xlsxToNumber(v)
+          else if (/שולם.*בפועל/.test(key) || /paid.?amount/i.test(key))  row.paidAmount = _xlsxToNumber(v)
+          else if (/הון\s*עצמי/.test(key) || /^equity$/i.test(key))        row.equity     = _xlsxToNumber(v)
+          else if (/^משכנתא$/.test(key) || /^mortgage$/i.test(key))         row.mortgage   = _xlsxToNumber(v)
+          else if (/^הערות?$/.test(key) || /^notes?$/i.test(key))           row.notes      = String(v || '')
+          else if (/מסלול/.test(key) || /^track$/i.test(key))               row.track      = _propTrackFromHebrew(v)
+        }
+        // Skip the totals row at bottom (no due date, no paid date, no type label).
+        if (!row.dueDate && !row.paidDate && row.amount === 0 && row.paidAmount === 0) continue
+        mapped.push(row)
+      }
+      if (mapped.length === 0) { alert('לא נמצאו שורות תקפות באקסל'); return }
+      if (!confirm(`לייבא ${mapped.length} שורות? פעולה זו תחליף את הטבלה הקיימת.`)) return
+      savePropertyPayments(mapped)
+      renderProperty()
+      alert(`✅ יובאו ${mapped.length} שורות`)
+    } catch (err) {
+      alert('שגיאה בקריאת האקסל: ' + err.message)
+    }
+    document.getElementById('propXlsxInput').value = ''
+  }
+  reader.readAsArrayBuffer(file)
+}
+
+function _xlsxToIso(v) {
+  if (!v) return ''
+  if (v instanceof Date) {
+    return _iso(v)
+  }
+  const s = String(v).trim()
+  if (!s) return ''
+  // Try dd/mm/yyyy first
+  const dmy = _dmyToIso(s)
+  if (dmy) return dmy
+  // Try ISO
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`
+  return ''
+}
+
+function _xlsxToNumber(v) {
+  if (typeof v === 'number') return v
+  if (!v) return 0
+  // Remove ₪, commas, spaces, dashes that mean "empty"
+  const s = String(v).replace(/[₪,\s]/g, '').replace(/^-$/, '')
+  const n = parseFloat(s)
+  return isFinite(n) ? n : 0
+}
+
+function _propTypeFromHebrew(v) {
+  const s = String(v || '').trim()
+  if (/^חתימה/.test(s)) return 'signing'
+  if (/מס\s*רכישה/.test(s)) return 'tax'
+  if (/^תשלום/.test(s)) return 'payment'
+  if (!s) return 'other'
+  return 'other'
+}
+
+function _propTrackFromHebrew(v) {
+  const s = String(v || '').trim()
+  if (/פריים/.test(s)) return 'prime'
+  if (/קבוע/.test(s)) return 'fixed'
+  if (/משתנה/.test(s)) return 'variable'
+  if (/מעורב|משולב/.test(s)) return 'mixed'
+  return ''
 }

@@ -1,4 +1,4 @@
-const APP_VERSION = '1.19.0'
+const APP_VERSION = '1.20.0'
 
 // ===== STORAGE =====
 const DB = {
@@ -250,7 +250,7 @@ function openEditModal(id) {
   document.getElementById('editModalBody').innerHTML = `
     <div class="modal-row"><label class="form-label">חשבון</label><select id="editAccount">${accOptions}</select></div>
     <div class="modal-row"><label class="form-label">ספק</label><input id="editVendor" value="${tx.vendor || ''}"></div>
-    <div class="modal-row"><label class="form-label">תאריך</label><input id="editDate" type="date" value="${tx.date}"></div>
+    <div class="modal-row"><label class="form-label">תאריך</label><input id="editDate" type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" value="${_isoToDmy(tx.date)}" oninput="_onDateMaskInput(this)"></div>
     <div class="modal-row"><label class="form-label">סכום (חיובי=הכנסה)</label><input id="editAmount" type="number" step="0.01" value="${tx.amount}"></div>
     <div class="modal-row"><label class="form-label">סוג</label><select id="editType" onchange="_onEditTypeChange()">${typeOptions}</select></div>
     <div class="modal-row" id="editDestRow" style="display:${showDest}"><label class="form-label">חשבון יעד (להעברה)</label><select id="editDestAccount"><option value="">—</option>${destAccOptions}</select></div>
@@ -295,7 +295,7 @@ function saveEditModal() {
     const fresh = {
       id: _editId,
       accountId: document.getElementById('editAccount').value,
-      date: document.getElementById('editDate').value,
+      date: _dmyToIso(document.getElementById('editDate').value) || _iso(new Date()),
       amount: isNaN(newAmount) ? 0 : newAmount,
       vendor: document.getElementById('editVendor').value,
       description: '',
@@ -313,7 +313,7 @@ function saveEditModal() {
     if (idx < 0) return
     txs[idx].accountId  = document.getElementById('editAccount').value
     txs[idx].vendor     = document.getElementById('editVendor').value
-    txs[idx].date       = document.getElementById('editDate').value
+    txs[idx].date       = _dmyToIso(document.getElementById('editDate').value) || txs[idx].date
     if (!isNaN(newAmount)) txs[idx].amount = newAmount
     txs[idx].type       = newType
     txs[idx].categoryId = document.getElementById('editCategory').value

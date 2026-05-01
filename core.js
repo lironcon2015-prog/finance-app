@@ -132,6 +132,51 @@ function analysisExpenseSavingsInvestIds() {
 // ===== PERIOD PRESETS =====
 function _ym(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
 function _iso(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+
+// ===== Native <input type=date> is locale-flaky and rejects typed input
+// reliably only via the browser's native picker. We use a masked text input
+// instead so users can type dd/mm/yyyy directly. Helpers here convert
+// between the typed format and the ISO 'YYYY-MM-DD' we store internally.
+function _isoToDmy(iso) {
+  if (!iso) return ''
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return ''
+  return `${m[3]}/${m[2]}/${m[1]}`
+}
+
+function _dmyToIso(s) {
+  if (!s) return ''
+  const m = String(s).trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/)
+  if (!m) return ''
+  let [_, dd, mm, yy] = m
+  if (yy.length === 2) yy = (parseInt(yy, 10) >= 70 ? '19' : '20') + yy
+  dd = dd.padStart(2, '0'); mm = mm.padStart(2, '0')
+  if (parseInt(mm, 10) > 12 || parseInt(dd, 10) > 31) return ''
+  return `${yy}-${mm}-${dd}`
+}
+
+// Mask handler: keeps the input strictly as dd/mm/yyyy while typing. Auto-
+// inserts "/" after day and month so the user types digits only.
+function _onDateMaskInput(input) {
+  const digits = input.value.replace(/\D/g, '').slice(0, 8)
+  let out = digits.slice(0, 2)
+  if (digits.length >= 3) out += '/' + digits.slice(2, 4)
+  if (digits.length >= 5) out += '/' + digits.slice(4, 8)
+  input.value = out
+}
+
+// Renders a masked dd/mm/yyyy text input. `cb` is the global function name
+// to call on commit (with the ISO string). `extra` is appended HTML attrs
+// (e.g., id, class, style). The change event fires only when the value
+// parses to a valid ISO (or empty).
+function dmyDateInput(value, cb, extra) {
+  const dmy = _isoToDmy(value)
+  const cls = (extra && /class=/.test(extra)) ? '' : ' class="form-input dmy-input"'
+  return `<input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" value="${dmy}"
+    oninput="_onDateMaskInput(this)"
+    onchange="${cb}(_dmyToIso(this.value), this)"${cls} ${extra||''}>`
+}
+// =====
 function _startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1) }
 function _endOfMonth(d) { return new Date(d.getFullYear(), d.getMonth()+1, 0) }
 
@@ -291,9 +336,9 @@ function renderPeriodSelector(containerId, onChange) {
       </div>
       <div class="period-custom" style="display:${active.key==='custom'?'flex':'none'}">
         <label class="form-label" style="margin:0">מ:</label>
-        <input type="date" id="periodCustomStart" value="${active.start||''}">
+        <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" id="periodCustomStart" value="${_isoToDmy(active.start||'')}" oninput="_onDateMaskInput(this)">
         <label class="form-label" style="margin:0">עד:</label>
-        <input type="date" id="periodCustomEnd" value="${active.end||''}">
+        <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" id="periodCustomEnd" value="${_isoToDmy(active.end||'')}" oninput="_onDateMaskInput(this)">
         <button class="btn-primary" id="periodCustomApply" style="padding:.4rem .9rem">החל</button>
       </div>
     </div>`
@@ -310,10 +355,10 @@ function renderPeriodSelector(containerId, onChange) {
   }))
   const applyBtn = el.querySelector('#periodCustomApply')
   if (applyBtn) applyBtn.addEventListener('click', () => {
-    const s = el.querySelector('#periodCustomStart').value
-    const e = el.querySelector('#periodCustomEnd').value
+    const s = _dmyToIso(el.querySelector('#periodCustomStart').value)
+    const e = _dmyToIso(el.querySelector('#periodCustomEnd').value)
     if (!s || !e) return
-    const p = { key: 'custom', label: `${s} → ${e}`, start: s, end: e }
+    const p = { key: 'custom', label: `${formatDate(s)} → ${formatDate(e)}`, start: s, end: e }
     setActivePeriod(p); onChange?.(p)
   })
 }

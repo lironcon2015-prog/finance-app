@@ -484,8 +484,8 @@ function setVendorDrillRange(range) {
 
 function applyVendorDrillCustom() {
   if (!_vendorDrill) return
-  _vendorDrill.customStart = document.getElementById('vendorDrillCustomStart').value
-  _vendorDrill.customEnd   = document.getElementById('vendorDrillCustomEnd').value
+  _vendorDrill.customStart = _dmyToIso(document.getElementById('vendorDrillCustomStart').value)
+  _vendorDrill.customEnd   = _dmyToIso(document.getElementById('vendorDrillCustomEnd').value)
   _vendorDrill.range = 'custom'
   _renderVendorDrill()
 }
@@ -528,9 +528,9 @@ function _renderVendorDrill() {
   const customRow = _vendorDrill.range === 'custom' ? `
     <div class="period-custom" style="display:flex;margin-top:.5rem">
       <label class="form-label" style="margin:0">מ:</label>
-      <input type="date" id="vendorDrillCustomStart" value="${_vendorDrill.customStart || start}">
+      <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" id="vendorDrillCustomStart" value="${_isoToDmy(_vendorDrill.customStart || start)}" oninput="_onDateMaskInput(this)">
       <label class="form-label" style="margin:0">עד:</label>
-      <input type="date" id="vendorDrillCustomEnd" value="${_vendorDrill.customEnd || end}">
+      <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" id="vendorDrillCustomEnd" value="${_isoToDmy(_vendorDrill.customEnd || end)}" oninput="_onDateMaskInput(this)">
       <button class="btn-primary" style="padding:.35rem .9rem" onclick="applyVendorDrillCustom()">החל</button>
     </div>` : ''
 

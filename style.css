@@ -1009,6 +1009,11 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .prop-row-mismatch { background: rgba(245,158,11,.08); }
 .prop-row-mismatch td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
 
+.prop-card-clickable { cursor: pointer; transition: transform .12s ease, border-color .12s ease; }
+.prop-card-clickable:hover { transform: translateY(-1px); border-color: rgba(59,130,246,.5); }
+
+.dmy-input { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+
 .prop-totals-row { background: var(--bg-elev); font-weight: 600; }
 .prop-totals-row td { border-top: 2px solid var(--border); }
 

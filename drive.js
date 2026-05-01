@@ -176,9 +176,10 @@ async function driveBackup() {
       recurringGroups:     DB.get('finManualRecurringGroups', []),
       recurringHidden:     DB.get('finRecurringHidden', []),
       recurringIgnoreOut:  DB.get('finRecurringIgnoreOutliers', []),
-      property:            DB.get('finProperty', null),
-      propertyPayments:    DB.get('finPropertyPayments', []),
-      exportedAt:          new Date().toISOString(),
+      property:                DB.get('finProperty', null),
+      propertyPayments:        DB.get('finPropertyPayments', []),
+      propertyManualMortgage:  DB.get('finPropertyManualMortgage', []),
+      exportedAt:              new Date().toISOString(),
     }, null, 2)
 
     const existing = await _driveFindFile()
@@ -238,6 +239,7 @@ async function driveRestore() {
     if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
     if (data.property)           DB.set('finProperty',                data.property)
     if (data.propertyPayments)   DB.set('finPropertyPayments',        data.propertyPayments)
+    if (data.propertyManualMortgage) DB.set('finPropertyManualMortgage', data.propertyManualMortgage)
     localStorage.setItem('driveBackupFileId', file.id)
     localStorage.setItem('driveBackupAt', new Date(file.modifiedTime).toISOString())
     _showDriveStatus('✅ שוחזר — מרענן…', false)
@@ -295,6 +297,7 @@ async function _driveAutoRestoreLatest() {
     if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
     if (data.property)           DB.set('finProperty',                data.property)
     if (data.propertyPayments)   DB.set('finPropertyPayments',        data.propertyPayments)
+    if (data.propertyManualMortgage) DB.set('finPropertyManualMortgage', data.propertyManualMortgage)
     localStorage.setItem('driveBackupAt', new Date(file.modifiedTime).toISOString())
     const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
     _showDriveBoot(`☁️ סונכרן גיבוי חדש מ-Drive (${dt}) — מרענן…`, 'ok', null)

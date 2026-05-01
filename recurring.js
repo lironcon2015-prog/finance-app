@@ -753,8 +753,8 @@ function _getDrillBounds() {
 }
 
 function applyDrillCustom() {
-  _drillCustomStart = document.getElementById('drillCustomStart').value
-  _drillCustomEnd   = document.getElementById('drillCustomEnd').value
+  _drillCustomStart = _dmyToIso(document.getElementById('drillCustomStart').value)
+  _drillCustomEnd   = _dmyToIso(document.getElementById('drillCustomEnd').value)
   _drillRange = 'custom'
   _renderDrillModal()
 }
@@ -801,9 +801,9 @@ function _renderDrillModal() {
   const customRow = _drillRange === 'custom' ? `
     <div class="period-custom" style="display:flex;margin-top:.5rem">
       <label class="form-label" style="margin:0">מ:</label>
-      <input type="date" id="drillCustomStart" value="${_drillCustomStart || start}">
+      <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" id="drillCustomStart" value="${_isoToDmy(_drillCustomStart || start)}" oninput="_onDateMaskInput(this)">
       <label class="form-label" style="margin:0">עד:</label>
-      <input type="date" id="drillCustomEnd" value="${_drillCustomEnd || end}">
+      <input type="text" inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" id="drillCustomEnd" value="${_isoToDmy(_drillCustomEnd || end)}" oninput="_onDateMaskInput(this)">
       <button class="btn-primary" style="padding:.35rem .9rem" onclick="applyDrillCustom()">החל</button>
     </div>` : ''
 
