@@ -236,6 +236,16 @@ function parseWithTemplate(rows, template) {
     const description = columns.description?.index != null ? String(row[columns.description.index] ?? '').trim() : ''
     const category    = columns.category?.index    != null ? String(row[columns.category.index]    ?? '').trim() : ''
 
+    // Optional explicit "charge date" column on CC bills. If present and parsable,
+    // we surface it on the row; getTxEffectiveMonth then uses it directly instead
+    // of inferring the billing month from billingDay rollover.
+    let chargeDate = ''
+    if (columns.chargeDate?.index != null) {
+      const cdRaw = row[columns.chargeDate.index]
+      const parsed = parseDateValue(cdRaw, columns.chargeDate.format || columns.date?.format)
+      if (parsed) chargeDate = parsed
+    }
+
     transactions.push({
       date,
       amount,
@@ -243,6 +253,7 @@ function parseWithTemplate(rows, template) {
       description,
       type: amount > 0 ? 'income' : 'expense',
       category,
+      ...(chargeDate ? { chargeDate } : {}),
     })
     stats.parsed++
   }

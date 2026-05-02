@@ -217,9 +217,16 @@ function filterByPeriod(txs, p) {
 }
 
 // Returns the effective billing month (YYYY-MM) for a transaction.
-// For credit_card accounts: if day >= billingDay, rolls over to next month.
-// For all other account types: returns the calendar month of tx.date.
+// If tx.chargeDate is present (e.g. CC export with an explicit "תאריך חיוב"
+// column), that wins outright — the issuer already told us which billing
+// cycle this row belongs to, no need to guess from billingDay rollover.
+// Otherwise: credit_card accounts use day-vs-billingDay rollover; everything
+// else returns the calendar month of tx.date.
 function getTxEffectiveMonth(tx) {
+  if (tx.chargeDate) {
+    const [cy, cm] = tx.chargeDate.split('-').map(Number)
+    if (cy && cm) return `${cy}-${String(cm).padStart(2,'0')}`
+  }
   if (!tx.date) return ''
   const info = _getAccountInfo(tx.accountId)
   const [y, m, d] = tx.date.split('-').map(Number)

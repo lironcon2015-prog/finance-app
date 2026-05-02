@@ -7,7 +7,8 @@ let _wizardState = null
 
 const ROLE_OPTIONS = [
   { v: 'ignore',      l: 'התעלם' },
-  { v: 'date',        l: 'תאריך' },
+  { v: 'date',        l: 'תאריך עסקה' },
+  { v: 'chargeDate',  l: 'תאריך חיוב (כרטיס אשראי)' },
   { v: 'amount',      l: 'סכום (חתום)' },
   { v: 'debit',       l: 'חובה / הוצאה' },
   { v: 'credit',      l: 'זכות / הכנסה' },
@@ -53,6 +54,9 @@ function _guessColumnMapping(rows, headerRowIndex) {
       if (patterns.some(p => header[i].includes(p))) { mapping[i] = role; return }
     }
   }
+  // Charge date FIRST so a header literally named "תאריך חיוב" doesn't get
+  // greedily eaten by the generic "תאריך" matcher below.
+  matchOne(['תאריך חיוב', 'מועד חיוב', 'charge date', 'billing date'], 'chargeDate')
   matchOne(['תאריך'], 'date')
   matchOne(['חובה', 'debit'], 'debit')
   matchOne(['זכות', 'credit'], 'credit')
@@ -177,8 +181,10 @@ function _buildTemplateFromWizard() {
   const debitIdx  = findIdx('debit')
   const creditIdx = findIdx('credit')
 
+  const chargeDateIdx = findIdx('chargeDate')
   const tplColumns = {
     date: { index: findIdx('date'), format: dateFormat },
+    chargeDate: chargeDateIdx >= 0 ? { index: chargeDateIdx, format: dateFormat } : null,
     amount: amountIdx >= 0
       ? { mode: 'signed', index: amountIdx, flipSign: !!flipAmountSign }
       : (debitIdx >= 0 || creditIdx >= 0)

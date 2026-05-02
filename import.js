@@ -337,6 +337,7 @@ function saveImport() {
     amount:           t.amount,
     vendor:           t.vendor,
     description:      t.description || '',
+    ...(t.chargeDate ? { chargeDate: t.chargeDate } : {}),
     type:             t.type,
     categoryId:       t._categoryId || '',
     notes:            '',
