@@ -400,7 +400,7 @@ function _renderTopVendors(periodTx) {
     const ca = analysisExpenseAmount(t, savingsInvestIds)
     if (ca <= 0) return
     const raw = (t.vendor || '—').trim()
-    const display = resolveVendor(raw, t.amount) || raw || '—'
+    const display = resolveVendor(raw, t.amount, getTxAliasDay(t)) || raw || '—'
     if (!byVendor[display]) byVendor[display] = { displayName: display, total: 0, count: 0, rawVendors: new Set() }
     byVendor[display].total += ca
     byVendor[display].count++
@@ -511,7 +511,7 @@ function _renderVendorDrill() {
 
   // Pull ALL tx (any account, any type) whose resolved vendor matches this
   // display name. No P&L filter — the user wants full picture.
-  const allTx = getTransactions().filter(t => (resolveVendor(t.vendor, t.amount) || t.vendor || '').trim() === displayName)
+  const allTx = getTransactions().filter(t => (resolveVendor(t.vendor, t.amount, getTxAliasDay(t)) || t.vendor || '').trim() === displayName)
   const rawNames = [...new Set(allTx.map(t => (t.vendor || '').trim()).filter(Boolean))]
 
   const { start, end } = _getVendorDrillBounds()
@@ -623,8 +623,13 @@ function saveVendorAliasFromDrill(existingId) {
   const patterns = patternsRaw.split('\n').map(s => s.trim()).filter(Boolean)
   if (!displayName) { alert('שם תצוגה חובה'); return }
   if (patterns.length === 0) { alert('יש להזין לפחות ביטוי אחד'); return }
+  // Preserve any day-of-month constraint set from settings/drill — this modal
+  // doesn't expose those fields, so we'd otherwise wipe them on save.
+  const prevAlias = (existingId && existingId !== 'null')
+    ? (getVendorAliases().find(a => a.id === existingId) || {})
+    : {}
   if (existingId && existingId !== 'null') {
-    updateVendorAlias(existingId, patterns, displayName, minRaw, maxRaw)
+    updateVendorAlias(existingId, patterns, displayName, minRaw, maxRaw, prevAlias.dayMin, prevAlias.dayMax)
   } else {
     addVendorAlias(patterns, displayName, minRaw, maxRaw)
   }

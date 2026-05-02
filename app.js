@@ -1,4 +1,4 @@
-const APP_VERSION = '1.21.0'
+const APP_VERSION = '1.21.1'
 
 // ===== STORAGE =====
 const DB = {
@@ -542,6 +542,56 @@ function migrateOrphanedTransfers_v4() {
   if (changed > 0) console.log(`Migration v4: restored ${changed} orphaned transfers to P&L`)
 }
 
+// One-shot migration: the v1.21 release moved the recurring narrowing config
+// off its own localStorage key (finRecurringGroupCriteria, briefly used in
+// 1.21.0) and into the existing vendor-alias schema, so the criteria editor
+// in the recurring drill and the alias card in settings now share storage.
+// This converts any criteria the user managed to set during 1.21.0 into a
+// matching alias (creating one if needed), then drops the old key.
+function migrateRecurringCriteriaToAliases_v1() {
+  if (localStorage.getItem('migration_recurring_criteria_to_aliases_v1') === '1') return
+  const old = DB.getObj('finRecurringGroupCriteria', {})
+  const keys = Object.keys(old || {})
+  if (keys.length === 0) {
+    localStorage.setItem('migration_recurring_criteria_to_aliases_v1', '1')
+    return
+  }
+  let migrated = 0
+  for (const vendorKey of keys) {
+    const c = old[vendorKey] || {}
+    const txs = getTransactions().filter(t => {
+      const k = (typeof _txVendorKey === 'function')
+        ? _txVendorKey(t)
+        : (typeof _normalizeVendor === 'function' ? _normalizeVendor(t.vendor, t.amount) : '')
+      return k === vendorKey
+    })
+    const counts = new Map()
+    let label = vendorKey
+    for (const t of txs) {
+      const raw = String(t.vendor || '').trim().toLowerCase()
+      if (raw) counts.set(raw, (counts.get(raw) || 0) + 1)
+      const resolved = (typeof resolveVendor === 'function')
+        ? resolveVendor(t.vendor, t.amount)
+        : t.vendor
+      if (resolved) label = resolved
+    }
+    const seedPattern = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || vendorKey
+    const existing = (typeof findAliasForDrillKey === 'function')
+      ? findAliasForDrillKey(vendorKey)
+      : null
+    if (existing) {
+      updateVendorAlias(existing.id, existing.patterns, existing.displayName,
+        c.amountMin, c.amountMax, null, null)
+    } else {
+      addVendorAlias([seedPattern], label, c.amountMin, c.amountMax, null, null)
+    }
+    migrated++
+  }
+  localStorage.removeItem('finRecurringGroupCriteria')
+  localStorage.setItem('migration_recurring_criteria_to_aliases_v1', '1')
+  if (migrated > 0) console.log(`Migration v1: moved ${migrated} recurring criteria into aliases`)
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
   initDefaultData()
@@ -550,6 +600,7 @@ document.addEventListener('DOMContentLoaded', () => {
   migrateRevertAutoCc_v1()
   migrateRelinkAutoTransfers_v3()
   migrateOrphanedTransfers_v4()
+  migrateRecurringCriteriaToAliases_v1()
   migrateBudgetType_v1()
   migrateBudgetMonthly_v2()
   if (typeof migrateManualGroupVendorKeys_v1 === 'function') migrateManualGroupVendorKeys_v1()

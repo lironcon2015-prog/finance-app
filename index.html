@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <!-- v1.21.0 -->
+  <!-- v1.21.1 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -503,10 +503,18 @@
             <label class="form-label">סכום עד</label>
             <input type="number" step="0.01" id="aliasInputAmountMax" placeholder="ללא">
           </div>
+          <div style="flex:0 0 95px">
+            <label class="form-label">יום חיוב מ־</label>
+            <input type="number" min="1" max="31" id="aliasInputDayMin" placeholder="ללא">
+          </div>
+          <div style="flex:0 0 95px">
+            <label class="form-label">יום חיוב עד</label>
+            <input type="number" min="1" max="31" id="aliasInputDayMax" placeholder="ללא">
+          </div>
           <button class="btn-primary" onclick="addAliasFromForm()">הוסף איחוד</button>
         </div>
         <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 1rem">
-          טווח סכום אופציונלי — האיחוד יחול רק כש-|סכום העסקה| נופל בטווח. לסכום מדויק, מלאו את שני השדות עם אותו הערך.
+          טווח סכום ויום חיוב הם אופציונליים — כששדה מאוכלס, האיחוד חל רק על עסקאות שעומדות בכל המגבלות. לערך מדויק (סכום או יום), מלאו את שני השדות באותו הערך. יום החיוב הוא של העסקה (אם קיים תאריך חיוב מפורש — שלו; אחרת תאריך העסקה).
         </p>
         <div id="aliasList"></div>
       </div>
@@ -727,22 +735,22 @@
   <button onclick="applyUpdate()">עדכן עכשיו</button>
 </div>
 
-<script>const _v = '1.21.0';</script>
-<script src="app.js?v=1.21.0"></script>
-<script src="core.js?v=1.21.0"></script>
-<script src="templates.js?v=1.21.0"></script>
-<script src="autocat.js?v=1.21.0"></script>
-<script src="budget.js?v=1.21.0"></script>
-<script src="budgetGen.js?v=1.21.0"></script>
-<script src="recurring.js?v=1.21.0"></script>
-<script src="dashboard.js?v=1.21.0"></script>
-<script src="transactions.js?v=1.21.0"></script>
-<script src="wizard.js?v=1.21.0"></script>
-<script src="import.js?v=1.21.0"></script>
-<script src="analysis.js?v=1.21.0"></script>
-<script src="settings.js?v=1.21.0"></script>
-<script src="drive.js?v=1.21.0"></script>
-<script src="property.js?v=1.21.0"></script>
+<script>const _v = '1.21.1';</script>
+<script src="app.js?v=1.21.1"></script>
+<script src="core.js?v=1.21.1"></script>
+<script src="templates.js?v=1.21.1"></script>
+<script src="autocat.js?v=1.21.1"></script>
+<script src="budget.js?v=1.21.1"></script>
+<script src="budgetGen.js?v=1.21.1"></script>
+<script src="recurring.js?v=1.21.1"></script>
+<script src="dashboard.js?v=1.21.1"></script>
+<script src="transactions.js?v=1.21.1"></script>
+<script src="wizard.js?v=1.21.1"></script>
+<script src="import.js?v=1.21.1"></script>
+<script src="analysis.js?v=1.21.1"></script>
+<script src="settings.js?v=1.21.1"></script>
+<script src="drive.js?v=1.21.1"></script>
+<script src="property.js?v=1.21.1"></script>
 
 <!-- SERVICE WORKER REGISTRATION & UPDATE LOGIC -->
 <script>

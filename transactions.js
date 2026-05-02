@@ -100,7 +100,7 @@ function _getFiltered() {
         if (!touches) return false
       }
       if (search) {
-        const hay = ((t.vendor||'') + (t.description||'') + (resolveVendor(t.vendor, t.amount)||'')).toLowerCase()
+        const hay = ((t.vendor||'') + (t.description||'') + (resolveVendor(t.vendor, t.amount, getTxAliasDay(t))||'')).toLowerCase()
         if (!hay.includes(search)) return false
       }
       return true
@@ -245,7 +245,7 @@ function _drawTxTable() {
             ${selectCell}
             <td>${formatDate(tx.date)}</td>
             ${effCell}
-            <td><div style="font-weight:500">${resolveVendor(tx.vendor, tx.amount)||'—'}${recurringFlagBadge}${groupBadge}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
+            <td><div style="font-weight:500">${resolveVendor(tx.vendor, tx.amount, getTxAliasDay(tx))||'—'}${recurringFlagBadge}${groupBadge}</div>${tx.description&&tx.description!==tx.vendor?`<div style="font-size:.75rem;color:var(--text-muted)">${tx.description}</div>`:''}</td>
             <td>${catBadge}</td>
             <td class="${amountCls}">${dispAmt>0?'+':''}${formatCurrency(dispAmt)}</td>
             <td>${typeBadge}</td>
@@ -314,7 +314,7 @@ function openMergeRecurringModal() {
   if (_txSelected.size < 2) { alert('בחר לפחות שתי עסקאות לאיחוד'); return }
   const ids = [...(_txSelected)]
   const txs = getTransactions().filter(t => ids.includes(t.id))
-  const defaultLabel = resolveVendor(txs[0]?.vendor || '', txs[0]?.amount) || txs[0]?.vendor || 'קבועה ידנית'
+  const defaultLabel = (txs[0] ? resolveVendor(txs[0].vendor || '', txs[0].amount, getTxAliasDay(txs[0])) : '') || txs[0]?.vendor || 'קבועה ידנית'
   const sumAmount = txs.reduce((s,t) => s + (t.amount || 0), 0)
   const allSameSign = txs.every(t => (t.amount || 0) * (txs[0].amount || 0) >= 0)
 

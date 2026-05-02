@@ -4,14 +4,19 @@
 // name — "משיכת שיק 2500" + "דמי שכירות" — group together), then delegate
 // to the canonical normalizer in autocat.js. autocat.js is loaded before
 // recurring.js in index.html, so the function is globally available.
-// `amount` flows through so amount-conditional aliases resolve correctly:
-// e.g. "העברה" tx of ₪5,000 groups under "משכנתא" while a ₪200 "העברה"
-// stays raw.
-function _normalizeVendor(v, amount) {
-  const resolved = (typeof resolveVendor === 'function') ? resolveVendor(v, amount) : v
+// `amount` and `day` flow through so condition-bearing aliases resolve
+// correctly: e.g. "העברה" tx of ₪5,000 groups under "משכנתא" while a ₪200
+// "העברה" stays raw; "מחיר ראשון" on day 5 groups under one alias and the
+// same vendor on day 28 stays in a separate bucket.
+function _normalizeVendor(v, amount, day) {
+  const resolved = (typeof resolveVendor === 'function') ? resolveVendor(v, amount, day) : v
   return (typeof normalizeVendorForAutocat === 'function')
     ? normalizeVendorForAutocat(resolved)
     : String(resolved || '').toLowerCase().trim()
+}
+
+function _txVendorKey(t) {
+  return _normalizeVendor(t.vendor, t.amount, getTxAliasDay(t))
 }
 
 // Cadence dictionary used by both auto-detection and manual flags/groups.
@@ -143,13 +148,15 @@ function detectRecurring() {
     if (t.recurringExcludeFromAuto) return false
     return true
   })
-  const allCriteria = _getRecurringCriteriaMap()
+  // Narrowing now lives on the vendor alias itself (amountMin/Max + dayMin/Max).
+  // resolveVendor — invoked through _txVendorKey — only returns the alias's
+  // displayName when ALL of its constraints pass; tx that fail fall back to
+  // their raw vendor key and end up in a separate (usually small, often
+  // ignored) bucket. Single source of truth shared with the settings UI.
   const groups = {}
   txs.forEach(t => {
-    const key = _normalizeVendor(t.vendor, t.amount)
+    const key = _txVendorKey(t)
     if (!key) return
-    const c = allCriteria[key]
-    if (c && !_matchesGroupCriteria(t, c)) return
     if (!groups[key]) groups[key] = []
     groups[key].push(t)
   })
@@ -190,7 +197,7 @@ function detectRecurring() {
     out.push({
       key,
       sourceKey: key,
-      vendor: resolveVendor(filtered[filtered.length-1].vendor, filtered[filtered.length-1].amount),
+      vendor: resolveVendor(filtered[filtered.length-1].vendor, filtered[filtered.length-1].amount, getTxAliasDay(filtered[filtered.length-1])),
       cadence: cadence.cadence,
       cadenceLabel: cadence.label,
       cadenceDays: cadence.days,
@@ -221,7 +228,7 @@ function _getManualFlagRecurring() {
     if (!t.recurringFlag) continue
     if (t.recurringGroupId) continue
     if (t.recurringExcludeFromAuto) continue
-    const key = _normalizeVendor(t.vendor, t.amount)
+    const key = _txVendorKey(t)
     if (!key) continue
     const cur = flagByKey[key]
     if (!cur || (t.date || '') > (cur.date || '')) {
@@ -229,17 +236,17 @@ function _getManualFlagRecurring() {
     }
   }
   const ignoreOutliersSet = getIgnoreOutliersSet()
-  const allCriteria = _getRecurringCriteriaMap()
   const out = []
   for (const [key, info] of Object.entries(flagByKey)) {
-    const c = allCriteria[key]
+    // Same vendor-key bucket as auto-detect: alias narrowing already applied
+    // by _txVendorKey, so a tx that fails the alias's amount/day filter is
+    // simply in a different (raw-vendor) bucket and not picked up here.
     const same = all.filter(t =>
       !t.recurringGroupId &&
       !t.recurringExcludeFromAuto &&
       t.type !== 'transfer' &&
       !t.ccPaymentForAccountId &&
-      _normalizeVendor(t.vendor, t.amount) === key &&
-      (!c || _matchesGroupCriteria(t, c))
+      _txVendorKey(t) === key
     )
     if (same.length === 0) continue
     const sorted = [...same].sort((a,b) => (a.date||'').localeCompare(b.date||''))
@@ -250,7 +257,7 @@ function _getManualFlagRecurring() {
     out.push({
       key: 'mflag:' + key,
       sourceKey: key,
-      vendor: resolveVendor(last.vendor, last.amount),
+      vendor: resolveVendor(last.vendor, last.amount, getTxAliasDay(last)),
       cadence: info.cadence,
       cadenceLabel: cad.label,
       cadenceDays: cad.days,
@@ -286,7 +293,7 @@ function createManualRecurringGroup({ label, cadence, txIds }) {
   // future tx with one of these keys auto-joins the group, so the user
   // doesn't have to re-merge each month.
   const vendorKeys = [...new Set(
-    selected.map(t => _normalizeVendor(t.vendor, t.amount)).filter(Boolean)
+    selected.map(t => _txVendorKey(t)).filter(Boolean)
   )]
   const id = genId()
   const list = getManualRecurringGroups()
@@ -304,7 +311,7 @@ function createManualRecurringGroup({ label, cadence, txIds }) {
   txs.forEach(t => {
     if (t.recurringGroupId) return
     const matches = selectedSet.has(t.id) ||
-      (vendorKeys.length > 0 && vendorKeys.includes(_normalizeVendor(t.vendor, t.amount)))
+      (vendorKeys.length > 0 && vendorKeys.includes(_txVendorKey(t)))
     if (!matches) return
     t.recurringGroupId = id
     delete t.recurringFlag
@@ -326,7 +333,7 @@ function _reconcileManualGroups() {
   let n = 0
   for (const t of txs) {
     if (t.recurringGroupId) continue
-    const k = _normalizeVendor(t.vendor, t.amount)
+    const k = _txVendorKey(t)
     if (k && keyToGroup[k]) {
       t.recurringGroupId = keyToGroup[k]
       delete t.recurringFlag
@@ -355,7 +362,7 @@ function migrateManualGroupVendorKeys_v1() {
     const keys = new Set()
     for (const t of txs) {
       if (t.recurringGroupId !== g.id) continue
-      const k = _normalizeVendor(t.vendor, t.amount)
+      const k = _txVendorKey(t)
       if (k) keys.add(k)
     }
     g.vendorKeys = [...keys]
@@ -396,65 +403,72 @@ function setRecurringTxExclude(txId, mode) {
   if (_drillKey) _renderDrillModal()
 }
 
-// ===== Per-vendor-key narrowing criteria =====
-// Storage shape: { [vendorKey]: {
-//   categoryId?:        string  -- only tx in this category count
-//   accountId?:         string  -- only tx on this account count
-//   amountMin?:         number  -- |amount| >= this
-//   amountMax?:         number  -- |amount| <= this
-//   descriptionContains?: string
-// } }
-// When a key has criteria, both detectRecurring and _getManualFlagRecurring
-// only include tx that match ALL set fields. No criteria ⇒ legacy behaviour
-// (catch every tx that shares the vendor key).
-function _getRecurringCriteriaMap() { return DB.getObj('finRecurringGroupCriteria', {}) }
-function getRecurringGroupCriteria(vendorKey) {
-  return _getRecurringCriteriaMap()[vendorKey] || null
+// ===== Per-bucket narrowing criteria =====
+// Criteria live on the vendor alias itself (amountMin/Max + dayMin/Max). The
+// alias unifies one or more raw vendor strings into a single displayName, and
+// resolveVendor only emits that displayName when ALL of the alias's
+// constraints pass — so the "criteria" and the "grouping" are the same object,
+// editable from the settings screen ("איחוד ספקים") and from the drill modal.
+//
+// findOrSeedAliasForDrill: maps a drill key (the normalised displayName the
+// recurring entry is keyed by) to the matching alias. If none exists yet we
+// synthesise a seed alias from the bucket's most-frequent raw vendor so the
+// drill's criteria editor always has something concrete to update.
+function findAliasForDrillKey(drillKey) {
+  return getVendorAliases().find(a =>
+    normalizeVendorForAutocat(a.displayName || '') === drillKey
+  ) || null
 }
-function setRecurringGroupCriteria(vendorKey, criteria) {
-  const all = _getRecurringCriteriaMap()
-  const cleaned = {}
-  if (criteria) {
-    if (criteria.categoryId)         cleaned.categoryId = criteria.categoryId
-    if (criteria.accountId)          cleaned.accountId = criteria.accountId
-    if (criteria.amountMin != null && !isNaN(criteria.amountMin))  cleaned.amountMin = Number(criteria.amountMin)
-    if (criteria.amountMax != null && !isNaN(criteria.amountMax))  cleaned.amountMax = Number(criteria.amountMax)
-    if (criteria.descriptionContains?.trim()) cleaned.descriptionContains = criteria.descriptionContains.trim()
+
+function _seedAliasForDrillKey(drillKey, vendorLabel) {
+  // Pick the most common raw vendor under this key as the seed pattern,
+  // falling back to the resolved label. lowercase + trim to match resolveVendor's
+  // substring needle.
+  const all = getTransactions().filter(t =>
+    !t.recurringGroupId && !t.recurringExcludeFromAuto && _txVendorKey(t) === drillKey
+  )
+  const counts = new Map()
+  for (const t of all) {
+    const raw = String(t.vendor || '').trim().toLowerCase()
+    if (!raw) continue
+    counts.set(raw, (counts.get(raw) || 0) + 1)
   }
-  if (Object.keys(cleaned).length === 0) {
-    delete all[vendorKey]
-  } else {
-    all[vendorKey] = cleaned
-  }
-  DB.set('finRecurringGroupCriteria', all)
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+  const seedPattern = top || String(vendorLabel || drillKey).trim().toLowerCase()
+  if (!seedPattern) return null
+  return addVendorAlias([seedPattern], vendorLabel || drillKey)
+}
+
+function applyRecurringCriteriaFromDrill(drillKey, vendorLabel) {
+  const f = id => document.getElementById(id)
+  const amountMinRaw = f('drillCriteriaAmountMin')?.value
+  const amountMaxRaw = f('drillCriteriaAmountMax')?.value
+  const dayMinRaw    = f('drillCriteriaDayMin')?.value
+  const dayMaxRaw    = f('drillCriteriaDayMax')?.value
+
+  let alias = findAliasForDrillKey(drillKey) || _seedAliasForDrillKey(drillKey, vendorLabel)
+  if (!alias) { alert('לא ניתן ליצור איחוד — אין עסקה עם שם ספק תקין.'); return }
+  updateVendorAlias(
+    alias.id,
+    alias.patterns,
+    alias.displayName,
+    amountMinRaw,
+    amountMaxRaw,
+    dayMinRaw,
+    dayMaxRaw,
+  )
   renderRecurring()
   if (_drillKey) _renderDrillModal()
 }
-function clearRecurringGroupCriteria(vendorKey) { setRecurringGroupCriteria(vendorKey, null) }
-function _matchesGroupCriteria(t, c) {
-  if (!c) return true
-  if (c.categoryId && t.categoryId !== c.categoryId) return false
-  if (c.accountId  && t.accountId  !== c.accountId)  return false
-  const abs = Math.abs(t.amount || 0)
-  if (c.amountMin != null && abs < c.amountMin) return false
-  if (c.amountMax != null && abs > c.amountMax) return false
-  if (c.descriptionContains) {
-    const text = ((t.vendor || '') + ' ' + (t.description || '')).toLowerCase()
-    if (!text.includes(c.descriptionContains.toLowerCase())) return false
-  }
-  return true
-}
 
-function applyRecurringCriteriaFromDrill(vendorKey) {
-  const f = id => document.getElementById(id)
-  const num = v => (v === '' || v == null) ? null : Number(v)
-  setRecurringGroupCriteria(vendorKey, {
-    categoryId:          f('drillCriteriaCategory')?.value || '',
-    accountId:           f('drillCriteriaAccount')?.value || '',
-    amountMin:           num(f('drillCriteriaAmountMin')?.value),
-    amountMax:           num(f('drillCriteriaAmountMax')?.value),
-    descriptionContains: f('drillCriteriaDescription')?.value || '',
-  })
+function clearRecurringCriteriaFromDrill(drillKey) {
+  const alias = findAliasForDrillKey(drillKey)
+  if (!alias) return
+  // Strip the narrowing fields but keep the alias itself (patterns + displayName)
+  // so the bucket label doesn't suddenly fall apart back to raw vendors.
+  updateVendorAlias(alias.id, alias.patterns, alias.displayName, null, null, null, null)
+  renderRecurring()
+  if (_drillKey) _renderDrillModal()
 }
 
 function setRecurringTxPeriodOverride(txId, ym) {
@@ -495,7 +509,7 @@ function clearRecurringFlagForVendorKey(vendorKey) {
   const txs = getTransactions()
   let n = 0
   txs.forEach(t => {
-    if (t.recurringFlag && _normalizeVendor(t.vendor, t.amount) === vendorKey) {
+    if (t.recurringFlag && _txVendorKey(t) === vendorKey) {
       delete t.recurringFlag
       n++
     }
@@ -616,7 +630,7 @@ function forecastCashFlow(monthsAhead = 3) {
   const recent = getTransactions().filter(t => {
     if (!t.date) return false
     if (new Date(t.date) < threeMoAgo) return false
-    if (recurringKeys.has(_normalizeVendor(t.vendor, t.amount))) return false
+    if (recurringKeys.has(_txVendorKey(t))) return false
     return true
   })
   const avgMonthlyIncome = sumIncome(recent) / 3
@@ -855,14 +869,14 @@ function _renderDrillModal() {
   } else if (_drillKey.startsWith('mflag:')) {
     const vk = _drillKey.slice('mflag:'.length)
     allTx = getTransactions().filter(t =>
-      !t.recurringGroupId && _normalizeVendor(t.vendor, t.amount) === vk
+      !t.recurringGroupId && _txVendorKey(t) === vk
     )
-    vendor = (allTx[0] && resolveVendor(allTx[0].vendor, allTx[0].amount)) || vk
+    vendor = (allTx[0] && resolveVendor(allTx[0].vendor, allTx[0].amount, getTxAliasDay(allTx[0]))) || vk
   } else {
     allTx = getTransactions().filter(t =>
-      !t.recurringGroupId && _normalizeVendor(t.vendor, t.amount) === _drillKey
+      !t.recurringGroupId && _txVendorKey(t) === _drillKey
     )
-    vendor = (allTx[0] && resolveVendor(allTx[0].vendor, allTx[0].amount)) || _drillKey
+    vendor = (allTx[0] && resolveVendor(allTx[0].vendor, allTx[0].amount, getTxAliasDay(allTx[0]))) || _drillKey
   }
   document.getElementById('drillTitle').textContent = `היסטוריית "${vendor}"`
 
@@ -904,7 +918,7 @@ function _renderDrillModal() {
         return `
           <tr style="${rowMuted}">
             <td>${formatDate(t.date)}${periodBadge}</td>
-            <td style="font-weight:500">${resolveVendor(t.vendor, t.amount) || '—'}</td>
+            <td style="font-weight:500">${resolveVendor(t.vendor, t.amount, getTxAliasDay(t)) || '—'}</td>
             <td>${cat ? `<span class="cat-badge" style="background:${cat.color}22;color:${cat.color}">${cat.icon||''} ${cat.name}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
             <td class="${t.amount>0?'amount-inc':'amount-exp'}" style="font-weight:600">${t.amount>0?'+':''}${formatCurrency(t.amount)}</td>
             <td style="min-width:9.5rem">
@@ -921,60 +935,57 @@ function _renderDrillModal() {
           </tr>`
       }).join('')
 
-  // Criteria editor — only shown for auto-detected vendor-key entries.
-  // Manual-merge groups (mgroup:*) get membership the explicit way, and
-  // criteria don't apply to them. Manual flags (mflag:*) DO use criteria
-  // (they share the same vendor-key bucket), so we expose the editor.
+  // Criteria editor — shown for auto-detected vendor-key drills and for the
+  // manual-flag path (mflag:*) since both share one vendor-key bucket. Manual
+  // merge groups (mgroup:*) curate membership explicitly and bypass narrowing.
+  // The criteria store IS the vendor alias (settings → "איחוד ספקים"); editing
+  // here writes to that same alias, so changes show up in both places.
   const isManualGroup = _drillKey.startsWith('mgroup:')
   const criteriaKey = _drillKey.startsWith('mflag:') ? _drillKey.slice('mflag:'.length) : _drillKey
-  const currentCriteria = isManualGroup ? null : getRecurringGroupCriteria(criteriaKey)
+  const currentAlias = isManualGroup ? null : findAliasForDrillKey(criteriaKey)
+  const hasNarrowing = !!(currentAlias && (
+    currentAlias.amountMin != null || currentAlias.amountMax != null ||
+    currentAlias.dayMin    != null || currentAlias.dayMax    != null
+  ))
   const criteriaSection = isManualGroup ? '' : (() => {
-    const cats = getCategories()
-    const accs = getAccounts()
-    const c = currentCriteria || {}
-    const catOpts = cats.map(cat =>
-      `<option value="${cat.id}" ${c.categoryId===cat.id?'selected':''}>${cat.icon||''} ${cat.name}</option>`
-    ).join('')
-    const accOpts = accs.map(a =>
-      `<option value="${a.id}" ${c.accountId===a.id?'selected':''}>${a.name}</option>`
-    ).join('')
-    const summary = currentCriteria
-      ? '<span style="color:var(--accent);font-size:.8rem">פעיל</span>'
-      : '<span style="color:var(--text-muted);font-size:.8rem">ללא — נתפס לפי לוגיקה ברירת מחדל</span>'
+    const a = currentAlias || {}
+    const summary = !currentAlias
+      ? '<span style="color:var(--text-muted);font-size:.8rem">ללא איחוד — שמירה תיצור אחד</span>'
+      : (hasNarrowing
+        ? '<span style="color:var(--accent);font-size:.8rem">איחוד פעיל עם מאפיינים</span>'
+        : '<span style="color:var(--text-muted);font-size:.8rem">איחוד קיים, ללא מאפיינים — נתפס לפי שם הספק בלבד</span>')
+    const escAttr = v => String(v ?? '').replace(/"/g,'&quot;')
+    const labelEscaped = escAttr(vendor)
     return `
-      <details class="drill-criteria" style="margin-bottom:1rem;border:1px solid var(--border);border-radius:8px;padding:.6rem .85rem" ${currentCriteria?'open':''}>
+      <details class="drill-criteria" style="margin-bottom:1rem;border:1px solid var(--border);border-radius:8px;padding:.6rem .85rem" ${hasNarrowing?'open':''}>
         <summary style="cursor:pointer;font-weight:600;font-size:.9rem;display:flex;justify-content:space-between;align-items:center">
           <span>מאפייני קיבוץ</span>${summary}
         </summary>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem;margin-top:.75rem">
+        <p style="font-size:.78rem;color:var(--text-muted);margin:.5rem 0 .75rem">
+          המאפיינים נשמרים כחלק מ"איחוד הספקים" שבמסך ההגדרות. עסקה נכנסת לקיבוץ רק אם שם הספק וכל המאפיינים שמולאו נכונים.
+          לסכום או יום מדויק — מלא את אותו ערך בשני השדות.
+        </p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.6rem">
           <div>
-            <label class="form-label" style="margin:0 0 .2rem">קטגוריה</label>
-            <select id="drillCriteriaCategory" style="font-size:.85rem;padding:.3rem;width:100%">
-              <option value="">— הכל —</option>${catOpts}
-            </select>
+            <label class="form-label" style="margin:0 0 .2rem">סכום מ־ (מוחלט)</label>
+            <input type="number" step="0.01" id="drillCriteriaAmountMin" value="${a.amountMin ?? ''}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
           </div>
           <div>
-            <label class="form-label" style="margin:0 0 .2rem">חשבון</label>
-            <select id="drillCriteriaAccount" style="font-size:.85rem;padding:.3rem;width:100%">
-              <option value="">— הכל —</option>${accOpts}
-            </select>
+            <label class="form-label" style="margin:0 0 .2rem">סכום עד (מוחלט)</label>
+            <input type="number" step="0.01" id="drillCriteriaAmountMax" value="${a.amountMax ?? ''}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
           </div>
           <div>
-            <label class="form-label" style="margin:0 0 .2rem">סכום מינ׳ (מוחלט)</label>
-            <input type="number" id="drillCriteriaAmountMin" value="${c.amountMin ?? ''}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
+            <label class="form-label" style="margin:0 0 .2rem">יום חיוב מ־ (1–31)</label>
+            <input type="number" min="1" max="31" id="drillCriteriaDayMin" value="${a.dayMin ?? ''}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
           </div>
           <div>
-            <label class="form-label" style="margin:0 0 .2rem">סכום מקס׳ (מוחלט)</label>
-            <input type="number" id="drillCriteriaAmountMax" value="${c.amountMax ?? ''}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
-          </div>
-          <div style="grid-column:1/-1">
-            <label class="form-label" style="margin:0 0 .2rem">תיאור / ספק מכיל</label>
-            <input type="text" id="drillCriteriaDescription" value="${(c.descriptionContains||'').replace(/"/g,'&quot;')}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
+            <label class="form-label" style="margin:0 0 .2rem">יום חיוב עד (1–31)</label>
+            <input type="number" min="1" max="31" id="drillCriteriaDayMax" value="${a.dayMax ?? ''}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
           </div>
         </div>
         <div style="display:flex;gap:.5rem;margin-top:.75rem">
-          <button class="btn-primary" style="font-size:.85rem;padding:.35rem .9rem" onclick="applyRecurringCriteriaFromDrill('${criteriaKey}')">החל מאפיינים</button>
-          ${currentCriteria ? `<button class="btn-ghost" style="font-size:.85rem;padding:.35rem .9rem" onclick="clearRecurringGroupCriteria('${criteriaKey}')">נקה</button>` : ''}
+          <button class="btn-primary" style="font-size:.85rem;padding:.35rem .9rem" onclick="applyRecurringCriteriaFromDrill('${criteriaKey}','${labelEscaped}')">החל מאפיינים</button>
+          ${hasNarrowing ? `<button class="btn-ghost" style="font-size:.85rem;padding:.35rem .9rem" onclick="clearRecurringCriteriaFromDrill('${criteriaKey}')">נקה מאפיינים</button>` : ''}
         </div>
       </details>`
   })()

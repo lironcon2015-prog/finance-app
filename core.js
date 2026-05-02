@@ -525,11 +525,15 @@ function matchVendorToCategory(vendor, description) {
 //
 // Storage shape:
 //   [{ id, patterns: ['p1','p2'], displayName,
-//      amountMin?: number, amountMax?: number, createdAt }]
-// amountMin/amountMax are optional. When set, the alias only matches if the
-// transaction's |amount| falls in [amountMin, amountMax]. min===max means
-// exact-amount match. Either bound may be omitted (open-ended range).
-// Matching is case-insensitive substring. Aliases with an amount filter
+//      amountMin?: number, amountMax?: number,
+//      dayMin?:    number, dayMax?:    number, createdAt }]
+// amountMin/amountMax: |amount| must fall in [amountMin, amountMax]. min===max
+// means exact-amount match. Either bound may be omitted (open-ended range).
+// dayMin/dayMax: day-of-month of the charge (chargeDate if present, else date)
+// must fall in [dayMin, dayMax]. Same semantics — exact day, single-bound, or
+// none. Day is 1..31. Lets users pin a recurring charge to its real billing
+// window when vendor + amount alone aren't unique.
+// Matching is case-insensitive substring. Aliases with an amount or day filter
 // outrank ones without (more specific wins); within each tier, longer
 // needle wins.
 
@@ -547,6 +551,10 @@ function _aliasHasAmountFilter(a) {
   return typeof a.amountMin === 'number' || typeof a.amountMax === 'number'
 }
 
+function _aliasHasDayFilter(a) {
+  return typeof a.dayMin === 'number' || typeof a.dayMax === 'number'
+}
+
 function _aliasAmountMatches(a, amount) {
   const hasMin = typeof a.amountMin === 'number'
   const hasMax = typeof a.amountMax === 'number'
@@ -558,6 +566,27 @@ function _aliasAmountMatches(a, amount) {
   return true
 }
 
+function _aliasDayMatches(a, day) {
+  const hasMin = typeof a.dayMin === 'number'
+  const hasMax = typeof a.dayMax === 'number'
+  if (!hasMin && !hasMax) return true
+  if (typeof day !== 'number' || isNaN(day)) return false
+  if (hasMin && day < a.dayMin) return false
+  if (hasMax && day > a.dayMax) return false
+  return true
+}
+
+// Day-of-month for an alias check. Prefers chargeDate (issuer-supplied billing
+// day) over tx.date so CC bills with explicit charge dates align with the
+// alias's day-range constraint, not the purchase day.
+function getTxAliasDay(t) {
+  if (!t) return null
+  const s = t.chargeDate || t.date
+  if (!s) return null
+  const day = Number(String(s).split('-')[2])
+  return isNaN(day) ? null : day
+}
+
 function _getVendorAliasIndex() {
   const now = Date.now()
   if (_vendorAliasIdx && now - _vendorAliasIdxTs < 500) return _vendorAliasIdx
@@ -566,16 +595,22 @@ function _getVendorAliasIndex() {
   aliases.forEach(a => {
     const amountMin = typeof a.amountMin === 'number' ? a.amountMin : null
     const amountMax = typeof a.amountMax === 'number' ? a.amountMax : null
+    const dayMin    = typeof a.dayMin    === 'number' ? a.dayMin    : null
+    const dayMax    = typeof a.dayMax    === 'number' ? a.dayMax    : null
     ;(a.patterns || []).forEach(p => {
       const needle = String(p || '').trim().toLowerCase()
-      if (needle) idx.push({ id: a.id, needle, displayName: a.displayName, amountMin, amountMax })
+      if (needle) idx.push({ id: a.id, needle, displayName: a.displayName, amountMin, amountMax, dayMin, dayMax })
     })
   })
-  // Aliases with an amount filter are more specific — try them first.
+  // Aliases with any narrowing filter are more specific — try them first.
+  // Within the "has-filter" tier, prefer entries with MORE filters set so
+  // (vendor+amount+day) wins over (vendor+amount) for the same vendor needle.
   idx.sort((a, b) => {
-    const aHas = a.amountMin !== null || a.amountMax !== null
-    const bHas = b.amountMin !== null || b.amountMax !== null
-    if (aHas !== bHas) return aHas ? -1 : 1
+    const aFilterCount = (a.amountMin !== null || a.amountMax !== null ? 1 : 0)
+                       + (a.dayMin    !== null || a.dayMax    !== null ? 1 : 0)
+    const bFilterCount = (b.amountMin !== null || b.amountMax !== null ? 1 : 0)
+                       + (b.dayMin    !== null || b.dayMax    !== null ? 1 : 0)
+    if (aFilterCount !== bFilterCount) return bFilterCount - aFilterCount
     return b.needle.length - a.needle.length
   })
   _vendorAliasIdx = idx
@@ -583,9 +618,10 @@ function _getVendorAliasIndex() {
   return idx
 }
 
-// `amount` is optional. When omitted, aliases that carry an amount filter
-// are skipped (their condition can't be evaluated without an amount).
-function resolveVendor(rawVendor, amount) {
+// `amount` and `day` are optional. When an alias carries a filter on an axis
+// the caller didn't pass, that alias is skipped — its condition can't be
+// evaluated without the data, and matching anyway would be silently wrong.
+function resolveVendor(rawVendor, amount, day) {
   if (!rawVendor) return rawVendor
   const lower = String(rawVendor).toLowerCase()
   for (const e of _getVendorAliasIndex()) {
@@ -596,18 +632,37 @@ function resolveVendor(rawVendor, amount) {
       if (e.amountMin !== null && abs < e.amountMin) continue
       if (e.amountMax !== null && abs > e.amountMax) continue
     }
+    if (e.dayMin !== null || e.dayMax !== null) {
+      if (typeof day !== 'number' || isNaN(day)) continue
+      if (e.dayMin !== null && day < e.dayMin) continue
+      if (e.dayMax !== null && day > e.dayMax) continue
+    }
     return e.displayName
   }
   return rawVendor
 }
 
+// Robust numeric parse: accepts strings with whitespace, thousands separators
+// (comma), or stray non-numeric chars. Returns null on empty / unparseable so
+// callers can distinguish "user left blank" from "user typed 0".
 function _normalizeAliasAmount(v) {
   if (v === null || v === undefined || v === '') return null
-  const n = parseFloat(v)
+  const s = String(v).trim().replace(/,/g, '').replace(/[^\d.\-]/g, '')
+  if (s === '' || s === '.' || s === '-') return null
+  const n = parseFloat(s)
   return isNaN(n) ? null : n
 }
 
-function addVendorAlias(patterns, displayName, amountMin, amountMax) {
+// Day must round to an integer in [1, 31]. Anything outside that → null.
+function _normalizeAliasDay(v) {
+  const n = _normalizeAliasAmount(v)
+  if (n == null) return null
+  const d = Math.round(n)
+  if (d < 1 || d > 31) return null
+  return d
+}
+
+function addVendorAlias(patterns, displayName, amountMin, amountMax, dayMin, dayMax) {
   const list = getVendorAliases()
   const patternsArr = (Array.isArray(patterns) ? patterns : [patterns])
     .map(p => String(p || '').trim()).filter(Boolean)
@@ -618,6 +673,8 @@ function addVendorAlias(patterns, displayName, amountMin, amountMax) {
     displayName: String(displayName).trim(),
     amountMin: _normalizeAliasAmount(amountMin),
     amountMax: _normalizeAliasAmount(amountMax),
+    dayMin:    _normalizeAliasDay(dayMin),
+    dayMax:    _normalizeAliasDay(dayMax),
     createdAt: Date.now(),
   }
   list.push(entry)
@@ -625,7 +682,7 @@ function addVendorAlias(patterns, displayName, amountMin, amountMax) {
   return entry
 }
 
-function updateVendorAlias(id, patterns, displayName, amountMin, amountMax) {
+function updateVendorAlias(id, patterns, displayName, amountMin, amountMax, dayMin, dayMax) {
   const list = getVendorAliases()
   const idx = list.findIndex(a => a.id === id)
   if (idx < 0) return
@@ -634,6 +691,8 @@ function updateVendorAlias(id, patterns, displayName, amountMin, amountMax) {
   list[idx].displayName = String(displayName || '').trim()
   list[idx].amountMin = _normalizeAliasAmount(amountMin)
   list[idx].amountMax = _normalizeAliasAmount(amountMax)
+  list[idx].dayMin    = _normalizeAliasDay(dayMin)
+  list[idx].dayMax    = _normalizeAliasDay(dayMax)
   saveVendorAliases(list)
 }
 
@@ -642,23 +701,25 @@ function deleteVendorAlias(id) {
 }
 
 // "100-200" → {min:100,max:200}; "5000" → {min:5000,max:5000};
-// "100-" → {min:100,max:null}; "-200" → {min:null,max:200}; "" → both null
+// "100-" → {min:100,max:null}; "-200" → {min:null,max:200}; "" → both null.
+// Tolerant parser: strips commas/whitespace before parseFloat so "1,193" is
+// 1193, not parseFloat("1,193") which would silently truncate to 1.
 function parseAliasAmountRange(str) {
   const s = String(str || '').trim()
   if (!s) return { amountMin: null, amountMax: null }
   if (s.includes('-')) {
-    const [aRaw, bRaw] = s.split('-')
-    const a = aRaw.trim() === '' ? null : parseFloat(aRaw)
-    const b = bRaw.trim() === '' ? null : parseFloat(bRaw)
-    const amountMin = (a !== null && !isNaN(a)) ? a : null
-    const amountMax = (b !== null && !isNaN(b)) ? b : null
-    if (amountMin !== null && amountMax !== null && amountMin > amountMax) {
-      return { amountMin: amountMax, amountMax: amountMin }
+    // Don't split on a leading minus (negative bound) — we only want range
+    // separators. Find the first '-' that ISN'T at position 0.
+    const i = s.indexOf('-', 1)
+    if (i > 0) {
+      const a = _normalizeAliasAmount(s.slice(0, i))
+      const b = _normalizeAliasAmount(s.slice(i + 1))
+      if (a !== null && b !== null && a > b) return { amountMin: b, amountMax: a }
+      return { amountMin: a, amountMax: b }
     }
-    return { amountMin, amountMax }
   }
-  const v = parseFloat(s)
-  return isNaN(v) ? { amountMin: null, amountMax: null } : { amountMin: v, amountMax: v }
+  const v = _normalizeAliasAmount(s)
+  return v === null ? { amountMin: null, amountMax: null } : { amountMin: v, amountMax: v }
 }
 
 function formatAliasAmountRange(amountMin, amountMax) {
@@ -669,4 +730,20 @@ function formatAliasAmountRange(amountMin, amountMax) {
   if (hasMin && hasMax) return `${amountMin}-${amountMax}`
   if (hasMin) return `${amountMin}-`
   return `-${amountMax}`
+}
+
+// Same shape as parseAliasAmountRange, but constrained to [1,31] integer days.
+function parseAliasDayRange(str) {
+  const { amountMin, amountMax } = parseAliasAmountRange(str)
+  return { dayMin: _normalizeAliasDay(amountMin), dayMax: _normalizeAliasDay(amountMax) }
+}
+
+function formatAliasDayRange(dayMin, dayMax) {
+  const hasMin = typeof dayMin === 'number'
+  const hasMax = typeof dayMax === 'number'
+  if (!hasMin && !hasMax) return ''
+  if (hasMin && hasMax && dayMin === dayMax) return String(dayMin)
+  if (hasMin && hasMax) return `${dayMin}-${dayMax}`
+  if (hasMin) return `${dayMin}-`
+  return `-${dayMax}`
 }

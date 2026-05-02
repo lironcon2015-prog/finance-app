@@ -24,23 +24,26 @@ function renderAliasList() {
     el.innerHTML = '<div style="color:var(--text-muted);font-size:.9rem;padding:1rem 0">אין איחודי ספקים. הוסף מכאן או ישירות מטופ הספקים בניתוח.</div>'
     return
   }
+  const cell = v => v
+    ? `<span class="vendor-raw-chip" style="background:var(--accent-bg);color:var(--accent)">${v}</span>`
+    : `<span style="color:var(--text-muted);font-size:.8rem">ללא</span>`
   el.innerHTML = `
-    <div class="rules-table-head" style="grid-template-columns:1fr 1.5fr auto auto">
+    <div class="rules-table-head" style="grid-template-columns:1fr 1.5fr auto auto auto">
       <div>שם תצוגה</div>
       <div>ביטויים</div>
       <div>טווח סכום</div>
+      <div>טווח יום חיוב</div>
       <div></div>
     </div>
     ${aliases.map(a => {
-      const range = formatAliasAmountRange(a.amountMin, a.amountMax)
-      const rangeCell = range
-        ? `<span class="vendor-raw-chip" style="background:var(--accent-bg);color:var(--accent)">${range}</span>`
-        : `<span style="color:var(--text-muted);font-size:.8rem">ללא</span>`
+      const amountRange = formatAliasAmountRange(a.amountMin, a.amountMax)
+      const dayRange    = formatAliasDayRange(a.dayMin, a.dayMax)
       return `
-      <div class="rules-row" style="grid-template-columns:1fr 1.5fr auto auto">
+      <div class="rules-row" style="grid-template-columns:1fr 1.5fr auto auto auto">
         <div class="rules-pattern" style="font-weight:600">${a.displayName}</div>
         <div class="rules-cat">${(a.patterns || []).map(p => `<span class="vendor-raw-chip">${p}</span>`).join(' ')}</div>
-        <div>${rangeCell}</div>
+        <div>${cell(amountRange)}</div>
+        <div>${cell(dayRange)}</div>
         <div style="display:flex;gap:.4rem">
           <button class="btn-ghost" style="font-size:.8rem;padding:.3rem .7rem" onclick="editAliasPrompt('${a.id}')">ערוך</button>
           <button class="btn-danger" onclick="removeAlias('${a.id}')">מחק</button>
@@ -54,13 +57,16 @@ function addAliasFromForm() {
   const patternsRaw = document.getElementById('aliasInputPatterns').value
   const minRaw = document.getElementById('aliasInputAmountMin')?.value
   const maxRaw = document.getElementById('aliasInputAmountMax')?.value
+  const dayMinRaw = document.getElementById('aliasInputDayMin')?.value
+  const dayMaxRaw = document.getElementById('aliasInputDayMax')?.value
   const patterns = patternsRaw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
   if (!displayName || patterns.length === 0) { alert('שם תצוגה וביטוי אחד לפחות חובה'); return }
-  addVendorAlias(patterns, displayName, minRaw, maxRaw)
+  addVendorAlias(patterns, displayName, minRaw, maxRaw, dayMinRaw, dayMaxRaw)
   document.getElementById('aliasInputDisplay').value = ''
   document.getElementById('aliasInputPatterns').value = ''
-  const minEl = document.getElementById('aliasInputAmountMin'); if (minEl) minEl.value = ''
-  const maxEl = document.getElementById('aliasInputAmountMax'); if (maxEl) maxEl.value = ''
+  for (const id of ['aliasInputAmountMin','aliasInputAmountMax','aliasInputDayMin','aliasInputDayMax']) {
+    const el = document.getElementById(id); if (el) el.value = ''
+  }
   renderAliasList()
 }
 
@@ -71,16 +77,23 @@ function editAliasPrompt(id) {
   if (newDisplay === null) return
   const newPatterns = prompt('ביטויים לזיהוי (שורה/פסיק לכל אחד):', (alias.patterns || []).join(', '))
   if (newPatterns === null) return
-  const currentRange = formatAliasAmountRange(alias.amountMin, alias.amountMax)
-  const newRange = prompt(
+  const currentAmount = formatAliasAmountRange(alias.amountMin, alias.amountMax)
+  const newAmount = prompt(
     'טווח סכום (לדוגמה: 100-200, או 5000 לסכום מדויק. ריק = ללא הגבלה):',
-    currentRange
+    currentAmount
   )
-  if (newRange === null) return
+  if (newAmount === null) return
+  const currentDay = formatAliasDayRange(alias.dayMin, alias.dayMax)
+  const newDay = prompt(
+    'טווח יום חיוב (1–31). לדוגמה: 9-11, או 10 ליום מדויק. ריק = ללא הגבלה:',
+    currentDay
+  )
+  if (newDay === null) return
   const patterns = newPatterns.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
   if (!newDisplay.trim() || patterns.length === 0) { alert('שם תצוגה וביטוי אחד לפחות חובה'); return }
-  const { amountMin, amountMax } = parseAliasAmountRange(newRange)
-  updateVendorAlias(id, patterns, newDisplay.trim(), amountMin, amountMax)
+  const { amountMin, amountMax } = parseAliasAmountRange(newAmount)
+  const { dayMin,    dayMax    } = parseAliasDayRange(newDay)
+  updateVendorAlias(id, patterns, newDisplay.trim(), amountMin, amountMax, dayMin, dayMax)
   renderAliasList()
 }
 
