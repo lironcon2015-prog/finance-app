@@ -132,17 +132,24 @@ function detectRecurring() {
   // exclude linked savings/investment deposits (they're a single structural
   // flow to a savings bucket, not a recurring "bill"). Tx that are part of
   // a manual merged group are excluded — they belong to that group only.
+  // Tx with recurringExcludeFromAuto: the user explicitly opted them out of
+  // their vendor's auto-bucket (one-off charges that share a vendor name with
+  // a real recurring item).
   const txs = getTransactions().filter(t => {
     if (t.type === 'transfer') return false
     if (t.ccPaymentForAccountId) return false
     if (t.transferAccountId) return false
     if (t.recurringGroupId) return false
+    if (t.recurringExcludeFromAuto) return false
     return true
   })
+  const allCriteria = _getRecurringCriteriaMap()
   const groups = {}
   txs.forEach(t => {
     const key = _normalizeVendor(t.vendor, t.amount)
     if (!key) return
+    const c = allCriteria[key]
+    if (c && !_matchesGroupCriteria(t, c)) return
     if (!groups[key]) groups[key] = []
     groups[key].push(t)
   })
@@ -213,6 +220,7 @@ function _getManualFlagRecurring() {
   for (const t of all) {
     if (!t.recurringFlag) continue
     if (t.recurringGroupId) continue
+    if (t.recurringExcludeFromAuto) continue
     const key = _normalizeVendor(t.vendor, t.amount)
     if (!key) continue
     const cur = flagByKey[key]
@@ -221,13 +229,17 @@ function _getManualFlagRecurring() {
     }
   }
   const ignoreOutliersSet = getIgnoreOutliersSet()
+  const allCriteria = _getRecurringCriteriaMap()
   const out = []
   for (const [key, info] of Object.entries(flagByKey)) {
+    const c = allCriteria[key]
     const same = all.filter(t =>
       !t.recurringGroupId &&
+      !t.recurringExcludeFromAuto &&
       t.type !== 'transfer' &&
       !t.ccPaymentForAccountId &&
-      _normalizeVendor(t.vendor, t.amount) === key
+      _normalizeVendor(t.vendor, t.amount) === key &&
+      (!c || _matchesGroupCriteria(t, c))
     )
     if (same.length === 0) continue
     const sorted = [...same].sort((a,b) => (a.date||'').localeCompare(b.date||''))
@@ -367,11 +379,82 @@ function setRecurringTxExclude(txId, mode) {
   const txs = getTransactions()
   const t = txs.find(x => x.id === txId)
   if (!t) return
-  if (mode === 'amount' || mode === 'period') t.recurringExcludeMode = mode
-  else delete t.recurringExcludeMode
+  if (mode === 'amount' || mode === 'period') {
+    t.recurringExcludeMode = mode
+    delete t.recurringExcludeFromAuto
+  } else if (mode === 'out') {
+    // Hard exclude: drop the tx from its vendor's auto-bucket entirely.
+    // Soft exclude modes are mutually exclusive with this — clear them.
+    t.recurringExcludeFromAuto = true
+    delete t.recurringExcludeMode
+  } else {
+    delete t.recurringExcludeMode
+    delete t.recurringExcludeFromAuto
+  }
   DB.set('finTransactions', txs)
   renderRecurring()
   if (_drillKey) _renderDrillModal()
+}
+
+// ===== Per-vendor-key narrowing criteria =====
+// Storage shape: { [vendorKey]: {
+//   categoryId?:        string  -- only tx in this category count
+//   accountId?:         string  -- only tx on this account count
+//   amountMin?:         number  -- |amount| >= this
+//   amountMax?:         number  -- |amount| <= this
+//   descriptionContains?: string
+// } }
+// When a key has criteria, both detectRecurring and _getManualFlagRecurring
+// only include tx that match ALL set fields. No criteria ⇒ legacy behaviour
+// (catch every tx that shares the vendor key).
+function _getRecurringCriteriaMap() { return DB.getObj('finRecurringGroupCriteria', {}) }
+function getRecurringGroupCriteria(vendorKey) {
+  return _getRecurringCriteriaMap()[vendorKey] || null
+}
+function setRecurringGroupCriteria(vendorKey, criteria) {
+  const all = _getRecurringCriteriaMap()
+  const cleaned = {}
+  if (criteria) {
+    if (criteria.categoryId)         cleaned.categoryId = criteria.categoryId
+    if (criteria.accountId)          cleaned.accountId = criteria.accountId
+    if (criteria.amountMin != null && !isNaN(criteria.amountMin))  cleaned.amountMin = Number(criteria.amountMin)
+    if (criteria.amountMax != null && !isNaN(criteria.amountMax))  cleaned.amountMax = Number(criteria.amountMax)
+    if (criteria.descriptionContains?.trim()) cleaned.descriptionContains = criteria.descriptionContains.trim()
+  }
+  if (Object.keys(cleaned).length === 0) {
+    delete all[vendorKey]
+  } else {
+    all[vendorKey] = cleaned
+  }
+  DB.set('finRecurringGroupCriteria', all)
+  renderRecurring()
+  if (_drillKey) _renderDrillModal()
+}
+function clearRecurringGroupCriteria(vendorKey) { setRecurringGroupCriteria(vendorKey, null) }
+function _matchesGroupCriteria(t, c) {
+  if (!c) return true
+  if (c.categoryId && t.categoryId !== c.categoryId) return false
+  if (c.accountId  && t.accountId  !== c.accountId)  return false
+  const abs = Math.abs(t.amount || 0)
+  if (c.amountMin != null && abs < c.amountMin) return false
+  if (c.amountMax != null && abs > c.amountMax) return false
+  if (c.descriptionContains) {
+    const text = ((t.vendor || '') + ' ' + (t.description || '')).toLowerCase()
+    if (!text.includes(c.descriptionContains.toLowerCase())) return false
+  }
+  return true
+}
+
+function applyRecurringCriteriaFromDrill(vendorKey) {
+  const f = id => document.getElementById(id)
+  const num = v => (v === '' || v == null) ? null : Number(v)
+  setRecurringGroupCriteria(vendorKey, {
+    categoryId:          f('drillCriteriaCategory')?.value || '',
+    accountId:           f('drillCriteriaAccount')?.value || '',
+    amountMin:           num(f('drillCriteriaAmountMin')?.value),
+    amountMax:           num(f('drillCriteriaAmountMax')?.value),
+    descriptionContains: f('drillCriteriaDescription')?.value || '',
+  })
 }
 
 function setRecurringTxPeriodOverride(txId, ym) {
@@ -811,7 +894,7 @@ function _renderDrillModal() {
     ? `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted)">אין עסקאות בתקופה</td></tr>`
     : filtered.map(t => {
         const cat = getCategoryById(t.categoryId)
-        const mode = t.recurringExcludeMode || ''
+        const mode = t.recurringExcludeFromAuto ? 'out' : (t.recurringExcludeMode || '')
         const overrideYm = t.recurringPeriodOverride ? t.recurringPeriodOverride.slice(0,7) : ''
         const effectiveDate = t.recurringPeriodOverride || t.date
         const periodLabel = _formatPeriodLabel(effectiveDate, cadence)
@@ -827,15 +910,74 @@ function _renderDrillModal() {
             <td style="min-width:9.5rem">
               <input type="month" value="${overrideYm}" onchange="setRecurringTxPeriodOverride('${t.id}', this.value)" style="font-size:.85rem;padding:.3rem .4rem;width:9rem">
             </td>
-            <td style="min-width:8.5rem">
-              <select onchange="setRecurringTxExclude('${t.id}', this.value)" style="font-size:.85rem;padding:.3rem .45rem;min-width:8rem;width:100%">
+            <td style="min-width:9rem">
+              <select onchange="setRecurringTxExclude('${t.id}', this.value)" style="font-size:.85rem;padding:.3rem .45rem;min-width:8.5rem;width:100%">
                 <option value="" ${mode===''?'selected':''}>נספר</option>
                 <option value="amount" ${mode==='amount'?'selected':''}>בלי סכום</option>
-                <option value="period" ${mode==='period'?'selected':''}>דלג</option>
+                <option value="period" ${mode==='period'?'selected':''}>דלג על תקופה</option>
+                <option value="out" ${mode==='out'?'selected':''}>מחוץ לקיבוץ</option>
               </select>
             </td>
           </tr>`
       }).join('')
+
+  // Criteria editor — only shown for auto-detected vendor-key entries.
+  // Manual-merge groups (mgroup:*) get membership the explicit way, and
+  // criteria don't apply to them. Manual flags (mflag:*) DO use criteria
+  // (they share the same vendor-key bucket), so we expose the editor.
+  const isManualGroup = _drillKey.startsWith('mgroup:')
+  const criteriaKey = _drillKey.startsWith('mflag:') ? _drillKey.slice('mflag:'.length) : _drillKey
+  const currentCriteria = isManualGroup ? null : getRecurringGroupCriteria(criteriaKey)
+  const criteriaSection = isManualGroup ? '' : (() => {
+    const cats = getCategories()
+    const accs = getAccounts()
+    const c = currentCriteria || {}
+    const catOpts = cats.map(cat =>
+      `<option value="${cat.id}" ${c.categoryId===cat.id?'selected':''}>${cat.icon||''} ${cat.name}</option>`
+    ).join('')
+    const accOpts = accs.map(a =>
+      `<option value="${a.id}" ${c.accountId===a.id?'selected':''}>${a.name}</option>`
+    ).join('')
+    const summary = currentCriteria
+      ? '<span style="color:var(--accent);font-size:.8rem">פעיל</span>'
+      : '<span style="color:var(--text-muted);font-size:.8rem">ללא — נתפס לפי לוגיקה ברירת מחדל</span>'
+    return `
+      <details class="drill-criteria" style="margin-bottom:1rem;border:1px solid var(--border);border-radius:8px;padding:.6rem .85rem" ${currentCriteria?'open':''}>
+        <summary style="cursor:pointer;font-weight:600;font-size:.9rem;display:flex;justify-content:space-between;align-items:center">
+          <span>מאפייני קיבוץ</span>${summary}
+        </summary>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem;margin-top:.75rem">
+          <div>
+            <label class="form-label" style="margin:0 0 .2rem">קטגוריה</label>
+            <select id="drillCriteriaCategory" style="font-size:.85rem;padding:.3rem;width:100%">
+              <option value="">— הכל —</option>${catOpts}
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="margin:0 0 .2rem">חשבון</label>
+            <select id="drillCriteriaAccount" style="font-size:.85rem;padding:.3rem;width:100%">
+              <option value="">— הכל —</option>${accOpts}
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="margin:0 0 .2rem">סכום מינ׳ (מוחלט)</label>
+            <input type="number" id="drillCriteriaAmountMin" value="${c.amountMin ?? ''}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
+          </div>
+          <div>
+            <label class="form-label" style="margin:0 0 .2rem">סכום מקס׳ (מוחלט)</label>
+            <input type="number" id="drillCriteriaAmountMax" value="${c.amountMax ?? ''}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
+          </div>
+          <div style="grid-column:1/-1">
+            <label class="form-label" style="margin:0 0 .2rem">תיאור / ספק מכיל</label>
+            <input type="text" id="drillCriteriaDescription" value="${(c.descriptionContains||'').replace(/"/g,'&quot;')}" placeholder="ללא" style="font-size:.85rem;padding:.3rem;width:100%">
+          </div>
+        </div>
+        <div style="display:flex;gap:.5rem;margin-top:.75rem">
+          <button class="btn-primary" style="font-size:.85rem;padding:.35rem .9rem" onclick="applyRecurringCriteriaFromDrill('${criteriaKey}')">החל מאפיינים</button>
+          ${currentCriteria ? `<button class="btn-ghost" style="font-size:.85rem;padding:.35rem .9rem" onclick="clearRecurringGroupCriteria('${criteriaKey}')">נקה</button>` : ''}
+        </div>
+      </details>`
+  })()
 
   document.getElementById('drillBody').innerHTML = `
     <div class="period-selector" style="margin-bottom:1rem">
@@ -847,6 +989,7 @@ function _renderDrillModal() {
       </div>
       ${customRow}
     </div>
+    ${criteriaSection}
     <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem;cursor:pointer;font-size:.9rem">
       <input type="checkbox" ${isIgnoringOutliers ? 'checked' : ''} onchange="toggleIgnoreOutliersDrill()">
       התעלם מחריגים בחישוב הממוצע

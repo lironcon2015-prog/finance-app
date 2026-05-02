@@ -173,6 +173,7 @@ async function driveBackup() {
       recurringGroups:     DB.get('finManualRecurringGroups', []),
       recurringHidden:     DB.get('finRecurringHidden', []),
       recurringIgnoreOut:  DB.get('finRecurringIgnoreOutliers', []),
+      recurringCriteria:   DB.getObj('finRecurringGroupCriteria', {}),
       property:            DB.get('finProperty', null),
       propertyPayments:    DB.get('finPropertyPayments', []),
       propertyManualMortgage: DB.get('finPropertyManualMortgage', []),
@@ -244,6 +245,7 @@ async function driveRestore() {
     if (data.recurringGroups)    DB.set('finManualRecurringGroups',   data.recurringGroups)
     if (data.recurringHidden)    DB.set('finRecurringHidden',         data.recurringHidden)
     if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
+    if (data.recurringCriteria)  DB.set('finRecurringGroupCriteria',  data.recurringCriteria)
     if (data.property)           DB.set('finProperty',                data.property)
     if (data.propertyPayments)   DB.set('finPropertyPayments',        data.propertyPayments)
     if (data.propertyManualMortgage) DB.set('finPropertyManualMortgage', data.propertyManualMortgage)
@@ -324,6 +326,7 @@ async function _driveAutoRestoreLatest() {
     if (data.recurringGroups)    DB.set('finManualRecurringGroups',   data.recurringGroups)
     if (data.recurringHidden)    DB.set('finRecurringHidden',         data.recurringHidden)
     if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
+    if (data.recurringCriteria)  DB.set('finRecurringGroupCriteria',  data.recurringCriteria)
     if (data.property)           DB.set('finProperty',                data.property)
     if (data.propertyPayments)   DB.set('finPropertyPayments',        data.propertyPayments)
     if (data.propertyManualMortgage) DB.set('finPropertyManualMortgage', data.propertyManualMortgage)
