@@ -517,6 +517,8 @@ select option { background-color: var(--bg-surface); color: var(--text-primary);
 .budget-screen-row.budget-danger { border-right-color: #f97316; }
 .budget-screen-row.budget-over { border-right-color: var(--expense); }
 .budget-screen-cat { font-size: .9rem; font-weight: 500; }
+.budget-screen-cat-link { cursor: pointer; }
+.budget-screen-cat-link:hover { text-decoration: underline; }
 .budget-screen-actual { font-size: .88rem; font-weight: 600; }
 .budget-screen-budget { font-size: .88rem; font-weight: 600; color: var(--text-secondary); }
 .budget-screen-bar-track { height: 6px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }

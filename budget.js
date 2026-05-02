@@ -273,10 +273,12 @@ function _renderBudgetScreenTable(monthKey, readOnly) {
              data-cat="${c.id}" data-type="${type}" data-month="${monthKey}"
              class="budget-input" onchange="onBudgetScreenChange(this)">
          </div>`
+    const onClick = `navigateBudgetCatToTx('${c.id}','${monthKey}')`
     return `
       <div class="budget-screen-row ${cls}">
-        <span class="budget-screen-cat">${c.icon||'📋'} ${c.name}</span>
-        ${actualCell}
+        <span class="budget-screen-cat budget-screen-cat-link" role="link" tabindex="0"
+              onclick="${onClick}" title="הצג עסקאות בקטגוריה זו לחודש זה">${c.icon||'📋'} ${c.name}</span>
+        <span class="budget-screen-actual-wrap" onclick="${onClick}" style="cursor:pointer">${actualCell}</span>
         ${input}
         <div class="budget-screen-bar-track"><div class="budget-screen-bar-fill" style="width:${pct}%"></div></div>
       </div>`
@@ -321,6 +323,33 @@ function _renderBudgetScreenTable(monthKey, readOnly) {
         ${incCats.map(c => row(c, 'income')).join('')}
       </div>
     </div>`
+}
+
+// Click-through from budget category → transactions view, scoped to that
+// month + category. The transactions screen filters via filterByEffectivePeriod
+// over a single calendar month, which lines up with computeBudgetStatus's
+// getTxEffectiveMonth grouping — same set of rows the "בפועל" cell counted.
+function navigateBudgetCatToTx(catId, monthKey) {
+  const [y, m] = monthKey.split('-').map(Number)
+  const lastDay = new Date(y, m, 0).getDate()
+  const pad = n => String(n).padStart(2, '0')
+  const start = `${y}-${pad(m)}-01`
+  const end   = `${y}-${pad(m)}-${pad(lastDay)}`
+  // 'custom' so the period selector reflects the chosen range and the user can
+  // see/edit it, instead of an unrecognised key that highlights nothing.
+  setActivePeriod({ key: 'custom', label: _budgetFormatMonth(monthKey), start, end })
+  navigate('transactions')
+  // After navigate, the filter elements exist. Reset orthogonal filters that
+  // would hide rows the budget tile counted (account / flow / search), then
+  // pin the category and redraw.
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v }
+  setVal('txSearch', '')
+  setVal('txAccountFilter', '')
+  setVal('txFlowFilter', '')
+  setVal('txTypeFilter', 'all')
+  setVal('txCategoryFilter', catId)
+  if (typeof _txPage !== 'undefined') _txPage = 0
+  if (typeof _drawTxTable === 'function') _drawTxTable()
 }
 
 function onBudgetScreenChange(input) {

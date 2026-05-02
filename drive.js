@@ -222,14 +222,18 @@ async function driveRestore() {
     driveSignIn()
     return 
   }
-  if (!confirm('שחזור יחליף את כל הנתונים הנוכחיים. להמשיך?')) return
+  if (!confirm('שחזור יחליף את כל הנתונים הנוכחיים בגיבוי האחרון מ-Drive — כולל שינויים מקומיים שעדיין לא גובו. להמשיך?')) return
   _showDriveStatus('משחזר…', false)
   try {
     const file = await _driveFindFile()
     if (!file) throw new Error('לא נמצא קובץ גיבוי בגוגל דרייב.')
     const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`)
     if (!r.ok) throw new Error(await r.text())
-    const data = await r.json()
+    let data
+    try { data = await r.json() } catch { data = null }
+    const isValid = data && typeof data === 'object' && !Array.isArray(data) &&
+      (Array.isArray(data.transactions) || Array.isArray(data.accounts) || Array.isArray(data.categories))
+    if (!isValid) throw new Error('קובץ הגיבוי בענן פגום — לא בוצע שחזור.')
     if (data.transactions)       DB.set('finTransactions',            data.transactions)
     if (data.accounts)           DB.set('finAccounts',                data.accounts)
     if (data.categories)         DB.set('finCategories',              data.categories)

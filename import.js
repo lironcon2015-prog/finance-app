@@ -188,11 +188,33 @@ function _finalizeParsedTransactions(parsed, accountId) {
     return (topN / total) >= AUTOCAT_CONFIDENCE_THRESHOLD ? topCat : ''
   }
 
-  // Dual-hash dedupe: match against BOTH the current hash (incl. description)
-  // and the legacy hash (pre-1.9.1, no description). Existing rows may carry
-  // either or both; either side matching is a duplicate.
-  const existingHashes = new Set(existing.map(t => t.sourceHash).filter(Boolean))
-  const existingLegacy = new Set(existing.map(t => t.legacySourceHash).filter(Boolean))
+  // Multi-set dedupe: each existing row is one slot that can be consumed by
+  // at most one new row. Without this, N installments that share the same
+  // (date, amount, vendor, description) all match the SAME single existing
+  // row and get falsely flagged as duplicates — which silently drops every
+  // legitimate installment beyond the first when re-importing a CC bill.
+  const slotsByHash = new Map()
+  existing.forEach(t => {
+    const seen = new Set()
+    ;[t.sourceHash, t.legacySourceHash].forEach(h => {
+      if (!h || seen.has(h)) return
+      seen.add(h)
+      if (!slotsByHash.has(h)) slotsByHash.set(h, [])
+      slotsByHash.get(h).push(t)
+    })
+  })
+  const consumed = new WeakSet()
+  const consumeMatch = (...hashes) => {
+    for (const h of hashes) {
+      if (!h) continue
+      const slots = slotsByHash.get(h)
+      if (!slots) continue
+      for (const row of slots) {
+        if (!consumed.has(row)) { consumed.add(row); return true }
+      }
+    }
+    return false
+  }
 
   // Auto-transfer detection on import is DISABLED: the bank statement is the
   // authoritative P&L source. A "כאל 5000" line on the bank is a real expense,
@@ -204,10 +226,7 @@ function _finalizeParsedTransactions(parsed, accountId) {
     const catFromRules   = catFromName ? '' : matchVendorToCategory(t.vendor, t.description)
     const catFromAutocat = (catFromName || catFromRules) ? '' : suggestFromAutocat(t.vendor)
     const { hash, legacyHash } = hashTx(t, accountId)
-    const isDuplicate = existingHashes.has(hash)
-                     || existingHashes.has(legacyHash)
-                     || existingLegacy.has(hash)
-                     || existingLegacy.has(legacyHash)
+    const isDuplicate = consumeMatch(hash, legacyHash)
     return {
       ...t,
       _categoryId:     catFromName || catFromRules || catFromAutocat,
