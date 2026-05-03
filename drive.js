@@ -5,7 +5,6 @@ const DRIVE_FILE_NAME = 'finance-app-backup.json'
 let _pendingDriveAction = null
 let _driveToken = null
 let _driveTokenClient = null
-let _driveSilentMode = false
 
 function _initDriveClient() {
   if (_driveTokenClient) return
@@ -13,25 +12,19 @@ function _initDriveClient() {
     client_id: DRIVE_CLIENT_ID,
     scope: DRIVE_SCOPE,
     callback: resp => {
-      const wasSilent = _driveSilentMode
-      _driveSilentMode = false
       if (resp.error) {
-        _renderDriveBootCTA('נדרש חיבור מחדש ל-Google')
+        _showDriveStatus('שגיאת התחברות: ' + resp.error, true)
         return
       }
       _driveToken = resp.access_token
-      localStorage.setItem('driveAutoConnect', '1')
       _renderDriveUI()
-      
+
       if (_pendingDriveAction === 'backup') {
         _pendingDriveAction = null
         driveBackup()
       } else if (_pendingDriveAction === 'restore') {
         _pendingDriveAction = null
         driveRestore()
-      } else {
-        _showDriveBoot('☁️ מחובר — שואב גיבוי…', 'info', null)
-        _driveAutoRestoreLatest()
       }
     },
   })
@@ -45,53 +38,7 @@ function driveSignIn() {
 function driveSignOut() {
   if (_driveToken) google.accounts.oauth2.revoke(_driveToken)
   _driveToken = null
-  localStorage.removeItem('driveAutoConnect')
   _renderDriveUI()
-}
-
-function driveAutoConnectOnBoot() {
-  if (localStorage.getItem('driveAutoConnect') !== '1') {
-    if (localStorage.getItem('driveBackupFileId') || localStorage.getItem('driveBackupAt')) {
-      localStorage.setItem('driveAutoConnect', '1')
-    } else {
-      return
-    }
-  }
-  _showDriveBoot('☁️ מתחבר ל-Drive…', 'info', null)
-  let tries = 0
-  const tick = () => {
-    if (window.google && google.accounts && google.accounts.oauth2) {
-      _initDriveClient()
-      _driveSilentMode = true
-      try {
-        _driveTokenClient.requestAccessToken({ prompt: '' })
-        setTimeout(() => {
-          if (_driveSilentMode && !_driveToken) {
-            _driveSilentMode = false
-            _renderDriveBootCTA('זמן ההמתנה לחיבור שקט אזל')
-          }
-        }, 3500)
-      } catch (e) {
-        _driveSilentMode = false
-        _renderDriveBootCTA(e?.message || '')
-      }
-    } else if (tries++ < 50) {
-      setTimeout(tick, 200)
-    } else {
-      _showDriveBoot('⚠️ ספריית Google לא נטענה — בדוק חיבור אינטרנט', 'err', 8000)
-    }
-  }
-  tick()
-}
-
-function _renderDriveBootCTA(reason) {
-  let el = document.getElementById('driveBanner')
-  if (!el) { el = document.createElement('div'); el.id = 'driveBanner'; document.body.appendChild(el) }
-  el.className = 'drive-banner drive-banner-err'
-  const detail = reason ? ` <span style="opacity:.7;font-size:.8rem">(${reason})</span>` : ''
-  el.innerHTML = `<span>🔑 נדרשת התחברות ל-Google כדי לסנכרן גיבוי${detail}</span>` +
-    `<button onclick="driveSignIn()">התחבר עכשיו</button>` +
-    `<button onclick="this.closest('.drive-banner').remove()" aria-label="סגור" style="background:transparent;border:none;color:inherit;cursor:pointer;font-size:1rem;padding:0 .25rem">✕</button>`
 }
 
 function _renderDriveUI() {
@@ -112,7 +59,7 @@ function _updateDriveLastInfo() {
 async function _driveReq(method, url, body, contentType) {
   const headers = { Authorization: 'Bearer ' + _driveToken }
   if (contentType) headers['Content-Type'] = contentType
-  
+
   const cacheBuster = (url.includes('?') ? '&' : '?') + '_t=' + Date.now()
   const finalUrl = method === 'GET' ? url + cacheBuster : url
 
@@ -131,7 +78,7 @@ async function _driveFindFile() {
   const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&orderBy=modifiedTime+desc&pageSize=5`)
   const data = await r.json()
   const searchLatest = data.files?.[0] || null
-  
+
   // בדיקת הקובץ שהמכשיר הזה ננעל עליו
   const savedId = localStorage.getItem('driveBackupFileId')
   let savedFile = null
@@ -155,10 +102,10 @@ async function _driveFindFile() {
 }
 
 async function driveBackup() {
-  if (!_driveToken) { 
+  if (!_driveToken) {
     _pendingDriveAction = 'backup'
     driveSignIn()
-    return 
+    return
   }
   _showDriveStatus('מגבה…', false)
   try {
@@ -217,10 +164,10 @@ async function driveBackup() {
 }
 
 async function driveRestore() {
-  if (!_driveToken) { 
+  if (!_driveToken) {
     _pendingDriveAction = 'restore'
     driveSignIn()
-    return 
+    return
   }
   if (!confirm('שחזור יחליף את כל הנתונים הנוכחיים בגיבוי האחרון מ-Drive — כולל שינויים מקומיים שעדיין לא גובו. להמשיך?')) return
   _showDriveStatus('משחזר…', false)
@@ -254,106 +201,6 @@ async function driveRestore() {
   } catch (e) {
     _showDriveStatus('שגיאה: ' + e.message, true)
   }
-}
-
-async function _driveCheckNewBackup() {
-  try {
-    const file = await _driveFindFile()
-    if (!file) return
-    localStorage.setItem('driveBackupFileId', file.id)
-    const localAt = localStorage.getItem('driveBackupAt')
-    if (!localAt || new Date(file.modifiedTime).getTime() > new Date(localAt).getTime()) {
-      _showDriveBanner(file.modifiedTime)
-    }
-  } catch {}
-}
-
-async function _driveAutoRestoreLatest() {
-  try {
-    const file = await _driveFindFile()
-    if (!file) {
-      _showDriveBoot('☁️ מחובר ל-Drive · אין עדיין גיבוי בענן', 'info', 5000)
-      return
-    }
-    const localAt = localStorage.getItem('driveBackupAt')
-    const uploadAt = localStorage.getItem('driveLastUploadAt')
-    
-    const fileTime = new Date(file.modifiedTime).getTime()
-    const pullTime = localAt ? new Date(localAt).getTime() : 0
-    const pushTime = uploadAt ? new Date(uploadAt).getTime() : 0
-
-    // מנגנון ניקוי רעלים: אם זמן השחזור נתקע בעתיד בגלל באג ישן, נתעלם ממנו כדי לשחרר את הפקק
-    const isPoisoned = pullTime > Date.now() + 300000
-
-    // הגיבוי נחשב עדכני אם הוא תואם את המשיכה האחרונה (Pull) או ההעלאה האחרונה (Push)
-    const isUpToDateWithPull = !isPoisoned && localAt && fileTime <= pullTime
-    const isUpToDateWithPush = uploadAt && fileTime <= pushTime
-
-    if (isUpToDateWithPull || isUpToDateWithPush) {
-      _updateDriveLastInfo()
-      const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
-      _showDriveBoot(`✅ מחובר ל-Drive · גיבוי עדכני (${dt})`, 'ok', 5000)
-      return
-    }
-    
-    const r = await _driveReq('GET', `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`)
-    if (!r.ok) {
-      _showDriveBoot('⚠️ שגיאה בקריאת הגיבוי מ-Drive', 'err', 7000)
-      return
-    }
-    let data
-    try { data = await r.json() } catch { data = null }
-
-    // אימות מבנה לפני כתיבה: בלי זה payload פגום (למשל מטא-דאטה במקום תוכן)
-    // היה גורם לכל ה-if (data.X) לדלג בשקט — אבל driveBackupAt בכל זאת היה מתקדם,
-    // וכל הרענונים הבאים היו נחשבים "עדכניים" ושום שחזור אמיתי לא היה קורה.
-    const isValid = data && typeof data === 'object' && !Array.isArray(data) &&
-      (Array.isArray(data.transactions) || Array.isArray(data.accounts) || Array.isArray(data.categories))
-    if (!isValid) {
-      _showDriveBoot('⚠️ קובץ הגיבוי בענן פגום — לא בוצע שחזור', 'err', 8000)
-      return
-    }
-
-    if (data.transactions)       DB.set('finTransactions',            data.transactions)
-    if (data.accounts)           DB.set('finAccounts',                data.accounts)
-    if (data.categories)         DB.set('finCategories',              data.categories)
-    if (data.budgets)            DB.set('finBudgets',                 data.budgets)
-    if (data.rules)              DB.set('finCategoryRules',           data.rules)
-    if (data.templates)          DB.set('finImportTemplates',         data.templates)
-    if (data.aliases)            DB.set('finVendorAliases',           data.aliases)
-    if (data.recurringGroups)    DB.set('finManualRecurringGroups',   data.recurringGroups)
-    if (data.recurringHidden)    DB.set('finRecurringHidden',         data.recurringHidden)
-    if (data.recurringIgnoreOut) DB.set('finRecurringIgnoreOutliers', data.recurringIgnoreOut)
-    if (data.property)           DB.set('finProperty',                data.property)
-    if (data.propertyPayments)   DB.set('finPropertyPayments',        data.propertyPayments)
-    if (data.propertyManualMortgage) DB.set('finPropertyManualMortgage', data.propertyManualMortgage)
-
-    // מעדכנים את ה-stamp רק אחרי שכתבנו, אחרת כישלון אחד נועל את המכשיר ב"עדכני" לתמיד
-    localStorage.setItem('driveBackupAt', new Date(file.modifiedTime).toISOString())
-    const dt = new Date(file.modifiedTime).toLocaleString('he-IL')
-    _showDriveBoot(`☁️ סונכרן גיבוי חדש מ-Drive (${dt}) — מרענן…`, 'ok', null)
-    setTimeout(() => location.reload(), 1800)
-  } catch (e) {
-    _showDriveBoot('⚠️ שגיאת סנכרון Drive: ' + (e.message || e), 'err', 7000)
-  }
-}
-
-function _showDriveBoot(msg, variant, autoHideMs) {
-  let el = document.getElementById('driveBanner')
-  if (!el) { el = document.createElement('div'); el.id = 'driveBanner'; document.body.appendChild(el) }
-  el.className = 'drive-banner drive-banner-' + (variant || 'info')
-  el.innerHTML = `<span>${msg}</span><button onclick="this.closest('.drive-banner').remove()" aria-label="סגור" style="background:transparent;border:none;color:inherit;cursor:pointer;font-size:1rem;padding:0 .25rem">✕</button>`
-  if (autoHideMs) {
-    setTimeout(() => { if (el && el.isConnected && el.textContent.includes(msg.slice(0,10))) el.remove() }, autoHideMs)
-  }
-}
-
-function _showDriveBanner(modifiedTime) {
-  let el = document.getElementById('driveBanner')
-  if (!el) { el = document.createElement('div'); el.id = 'driveBanner'; document.body.appendChild(el) }
-  el.className = 'drive-banner'
-  const dt = new Date(modifiedTime).toLocaleString('he-IL')
-  el.innerHTML = `☁️ נמצא גיבוי חדש יותר בגוגל דרייב (${dt}) <button onclick="driveRestore()">שחזר</button> <button onclick="this.closest('.drive-banner').remove()">✕</button>`
 }
 
 function _showDriveStatus(msg, isErr) {
