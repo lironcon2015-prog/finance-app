@@ -1027,3 +1027,29 @@ select option { background-color: var(--bg-surface); color: var(--text-primary);
   .prop-table { font-size: .8rem; }
   .prop-table .prop-input { min-width: 4rem; }
 }
+
+/* ===== Desktop scrollbar enhancements ===== */
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar { width: 12px; height: 14px; }
+  ::-webkit-scrollbar-track { background: var(--bg-surface); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-bright);
+    border-radius: 7px;
+    border: 2px solid var(--bg-surface);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  /* Top mirror scrollbar synced with the bottom one — saves scrolling
+     to the end of long tables to drag horizontally. */
+  .scroll-x-mirror {
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 14px;
+    margin-bottom: .35rem;
+  }
+  .scroll-x-mirror > div { height: 1px; }
+}
+
+@media not all and (hover: hover) {
+  .scroll-x-mirror { display: none !important; }
+}
