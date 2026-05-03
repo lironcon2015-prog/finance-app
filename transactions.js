@@ -111,7 +111,10 @@ function _getFiltered() {
 function _drawTxTable() {
   const filtered = _getFiltered()
   const accountId = document.getElementById('txAccountFilter')?.value || ''
-  const showRunningBalance = !!accountId
+  const acc = accountId ? getAccounts().find(a => a.id === accountId) : null
+  // Running balance only for checking/cash — CC and savings/investment balances
+  // aren't real-time accurate, so showing them is misleading.
+  const showRunningBalance = !!(acc && PL_ACCOUNT_TYPES.has(acc.type))
   // Raw sums of visible rows (not P&L scope) so the summary matches
   // the table — CC detail and transactions on non-liquid accounts must
   // be counted here even though they're excluded from the dashboard P&L.
@@ -124,7 +127,6 @@ function _drawTxTable() {
   const net = totalInc - totalExp
   let runningBalanceInfo = ''
   if (showRunningBalance) {
-    const acc = getAccounts().find(a => a.id === accountId)
     const bal = getAccountBalance(accountId)
     runningBalanceInfo = `<span style="color:${bal>=0?'var(--income)':'var(--expense)'};font-weight:600">יתרה: ${formatCurrency(bal)}</span>`
   }
@@ -184,7 +186,6 @@ function _drawTxTable() {
       || t.ccPaymentForAccountId === accountId
       || t.transferAccountId === accountId
     ).sort((a,b) => (a.date||'').localeCompare(b.date||''))
-    const acc = getAccounts().find(a => a.id === accountId)
     let run = acc?.openingBalance || 0
     for (const t of accTxs) {
       run += _txViewAmount(t, accountId)
