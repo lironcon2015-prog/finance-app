@@ -263,8 +263,8 @@ function _renderTrendChart(all, period) {
     data: {
       labels,
       datasets: [
-        { type: 'bar',  label: 'הכנסות', data: incomes, backgroundColor: 'rgba(34,197,94,.55)', borderRadius: 6, borderSkipped: false },
-        { type: 'bar',  label: 'הוצאות', data: exps,    backgroundColor: 'rgba(239,68,68,.55)', borderRadius: 6, borderSkipped: false },
+        { type: 'bar',  label: 'הכנסות', data: incomes, backgroundColor: 'rgba(16,185,129,.5)',  borderRadius: 6, borderSkipped: false },
+        { type: 'bar',  label: 'הוצאות', data: exps,    backgroundColor: 'rgba(244,63,94,.5)',   borderRadius: 6, borderSkipped: false },
         { type: 'line', label: 'נטו',    data: nets,    borderColor: '#3b82f6', backgroundColor: trendNetGrad,
           borderWidth: 2.5, tension: 0.45, fill: true,
           pointRadius: 4, pointBackgroundColor: '#3b82f6', pointBorderColor: '#03040b', pointBorderWidth: 2 },
