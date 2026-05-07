@@ -436,8 +436,13 @@ function excelToCSV(file) {
     r.onload = e => {
       try {
         const wb = XLSX.read(e.target.result, { type: 'array' })
-        const ws = wb.Sheets[wb.SheetNames[0]]
-        res(XLSX.utils.sheet_to_csv(ws))
+        const parts = []
+        for (const name of wb.SheetNames) {
+          const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]).trim()
+          if (!csv) continue
+          parts.push(wb.SheetNames.length > 1 ? `=== גיליון: ${name} ===\n${csv}` : csv)
+        }
+        res(parts.join('\n\n'))
       } catch (err) { rej(err) }
     }
     r.onerror = rej
