@@ -67,6 +67,56 @@ function deleteBudget(categoryId, monthKey) {
 
 function _isUnforeseen(catId) { return catId === UNFORESEEN_ID }
 
+// Budget tracking uses the analysis scope (CC detail per category, lump
+// payment skipped), but also catches un-linked CC lumps that analysisExpenseAmount
+// would miss. A bank-side outflow whose vendor matches any credit_card account's
+// paymentVendorPatterns — or, when at least one CC account exists, any entry in
+// CC_KEYWORDS — is treated as a CC lump and dropped, even if autoLink hasn't
+// stamped ccPaymentForAccountId. Otherwise the lump would still land in the
+// "credit card" category row alongside the CC detail rows in their own
+// categories, double-counting the same money.
+let _budgetCcLumpCache = null
+let _budgetCcLumpCacheTs = 0
+function _getBudgetCcLumpDetect() {
+  const now = Date.now()
+  if (_budgetCcLumpCache && now - _budgetCcLumpCacheTs < 500) return _budgetCcLumpCache
+  const ccAccs = getAccounts().filter(a => a.type === 'credit_card')
+  const patterns = []
+  ccAccs.forEach(a => (a.paymentVendorPatterns || []).forEach(p => {
+    const needle = String(p || '').toLowerCase().trim()
+    if (needle) patterns.push(needle)
+  }))
+  const hasCc = ccAccs.length > 0
+  const keywords = (hasCc && typeof CC_KEYWORDS !== 'undefined') ? CC_KEYWORDS.map(k => k.toLowerCase()) : []
+  _budgetCcLumpCache = { hasCc, patterns, keywords }
+  _budgetCcLumpCacheTs = now
+  return _budgetCcLumpCache
+}
+function invalidateBudgetCcLumpCache() { _budgetCcLumpCache = null }
+
+function _isUnlinkedCcLump(t) {
+  if (t.amount >= 0) return false
+  const det = _getBudgetCcLumpDetect()
+  if (!det.hasCc) return false
+  const info = typeof _getAccountInfo === 'function' ? _getAccountInfo(t.accountId) : null
+  if (info && info.type !== 'checking' && info.type !== 'cash') return false
+  const text = ((t.vendor || '') + ' ' + (t.description || '')).toLowerCase()
+  if (!text.trim()) return false
+  if (det.patterns.some(p => text.includes(p))) return true
+  if (det.keywords.some(k => text.includes(k))) return true
+  return false
+}
+
+function budgetExpenseAmount(t, savingsInvestIds) {
+  if (t.type === 'transfer') return 0
+  if (t.ccPaymentForAccountId) return 0
+  if (savingsInvestIds && savingsInvestIds.has(t.accountId)) return 0
+  if (_isUnlinkedCcLump(t)) return 0
+  if (t.type === 'refund' && t.amount > 0) return -t.amount
+  if (t.amount < 0) return Math.abs(t.amount)
+  return 0
+}
+
 // Synthesizes a "category" object for the unforeseen slot so UI code can
 // stay uniform. Real categories go through getCategoryById.
 function _budgetCategoryProxy(catId) {
@@ -79,14 +129,16 @@ function _budgetCategoryProxy(catId) {
 // Per-category status for a specific month. Unforeseen rows always report
 // actual=0 (they're plug numbers, not tracking real tx).
 //
-// SCOPE: P&L only (countedExpenseAmount) — bank-side CC payments count,
-// CC detail rows don't. This is the same scope as the dashboard and the
-// only way to avoid double-counting when a user keeps a "credit card"
-// expense category for the lump payment alongside per-category budgets
-// (food, fuel, …) that would otherwise also catch the CC detail rows.
+// SCOPE: analysis-style (CC detail per category, lump payment dropped) via
+// budgetExpenseAmount. The lump is dropped not only when ccPaymentForAccountId
+// is set but also when its vendor matches a CC account's payment pattern or a
+// global CC_KEYWORDS entry — so an un-linked bank-side lump categorized as
+// "credit card" doesn't sit in that row while its CC detail counterparts
+// already count under food / fuel / etc.
 function computeBudgetStatus(monthKey) {
   const budgets = getBudgetsForMonth(monthKey)
   const txs = getTransactions().filter(t => getTxEffectiveMonth(t) === monthKey)
+  const savingsInvestIds = analysisExpenseSavingsInvestIds()
   return budgets.map(b => {
     const cat = _budgetCategoryProxy(b.categoryId)
     const type = b.type || 'expense'
@@ -95,7 +147,7 @@ function computeBudgetStatus(monthKey) {
       const catTxs = txs.filter(t => t.categoryId === b.categoryId)
       actual = type === 'income'
         ? catTxs.filter(isCountedIncome).reduce((s,t)=>s+t.amount,0)
-        : catTxs.reduce((s,t)=>s+countedExpenseAmount(t),0)
+        : catTxs.reduce((s,t)=>s+budgetExpenseAmount(t, savingsInvestIds),0)
     }
     const budget = b.amount
     const remaining = budget - actual
