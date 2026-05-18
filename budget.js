@@ -78,10 +78,15 @@ function _budgetCategoryProxy(catId) {
 
 // Per-category status for a specific month. Unforeseen rows always report
 // actual=0 (they're plug numbers, not tracking real tx).
+//
+// SCOPE: P&L only (countedExpenseAmount) — bank-side CC payments count,
+// CC detail rows don't. This is the same scope as the dashboard and the
+// only way to avoid double-counting when a user keeps a "credit card"
+// expense category for the lump payment alongside per-category budgets
+// (food, fuel, …) that would otherwise also catch the CC detail rows.
 function computeBudgetStatus(monthKey) {
   const budgets = getBudgetsForMonth(monthKey)
   const txs = getTransactions().filter(t => getTxEffectiveMonth(t) === monthKey)
-  const savingsInvestIds = analysisExpenseSavingsInvestIds()
   return budgets.map(b => {
     const cat = _budgetCategoryProxy(b.categoryId)
     const type = b.type || 'expense'
@@ -90,7 +95,7 @@ function computeBudgetStatus(monthKey) {
       const catTxs = txs.filter(t => t.categoryId === b.categoryId)
       actual = type === 'income'
         ? catTxs.filter(isCountedIncome).reduce((s,t)=>s+t.amount,0)
-        : catTxs.reduce((s,t)=>s+analysisExpenseAmount(t, savingsInvestIds),0)
+        : catTxs.reduce((s,t)=>s+countedExpenseAmount(t),0)
     }
     const budget = b.amount
     const remaining = budget - actual

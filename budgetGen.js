@@ -73,11 +73,12 @@ function _bgLastCompleteMonthsBefore(targetMonth, n) {
 }
 
 // Amount contributed by a tx to a category's baseline, by category type.
-// Expense uses analysisExpenseAmount (CC detail per category, not lump sum) —
-// matches the budget tracking scope in computeBudgetStatus.
-function _bgCategoryAmount(t, type, savingsInvestIds) {
+// Expense uses countedExpenseAmount (P&L scope — bank-side lump CC payments
+// count, CC detail rows don't) — matches computeBudgetStatus so the proposed
+// baseline reflects the same numbers the budget tracker will report.
+function _bgCategoryAmount(t, type) {
   if (type === 'income') return isCountedIncome(t) ? t.amount : 0
-  return analysisExpenseAmount(t, savingsInvestIds)
+  return countedExpenseAmount(t)
 }
 
 // Does recurring item r land in monthKey? Monthly always hits. For
@@ -107,7 +108,6 @@ function generateBudgetProposals(targetMonth) {
   const cats = getCategories()
   const recurring = (typeof getRecurring === 'function' ? getRecurring() : []) || []
   const txs = getTransactions()
-  const savingsInvestIds = analysisExpenseSavingsInvestIds()
 
   // Pre-filter to baseline months by EFFECTIVE month, so CC purchases at
   // end-of-month whose raw date falls outside the calendar range still get
@@ -129,7 +129,7 @@ function generateBudgetProposals(targetMonth) {
     const perMonth = months.map(m =>
       catTxs
         .filter(t => getTxEffectiveMonth(t) === m)
-        .reduce((s, t) => s + _bgCategoryAmount(t, type, savingsInvestIds), 0)
+        .reduce((s, t) => s + _bgCategoryAmount(t, type), 0)
     )
     const { trimmed, outliers, wasTrimmed } = _bgTrimmedMean25(perMonth)
     const median = _bgMedian(perMonth)
