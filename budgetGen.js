@@ -73,13 +73,13 @@ function _bgLastCompleteMonthsBefore(targetMonth, n) {
 }
 
 // Amount contributed by a tx to a category's baseline, by category type.
-// Expense uses budgetExpenseAmount (CC detail per category, lump CC payments
-// dropped — including un-linked lumps detected via CC account patterns /
-// CC_KEYWORDS), matching computeBudgetStatus so the proposed baseline reflects
-// the same numbers the budget tracker will report.
-function _bgCategoryAmount(t, type, savingsInvestIds) {
+// Expense uses budgetExpenseAmount with a per-month context (CC detail per
+// category, lump CC payments dropped only when the targeted CC account has
+// detail txs in the same month) — matches computeBudgetStatus so the
+// proposed baseline reflects the same numbers the budget tracker will report.
+function _bgCategoryAmount(t, type, ctx) {
   if (type === 'income') return isCountedIncome(t) ? t.amount : 0
-  return budgetExpenseAmount(t, savingsInvestIds)
+  return budgetExpenseAmount(t, ctx)
 }
 
 // Does recurring item r land in monthKey? Monthly always hits. For
@@ -109,13 +109,19 @@ function generateBudgetProposals(targetMonth) {
   const cats = getCategories()
   const recurring = (typeof getRecurring === 'function' ? getRecurring() : []) || []
   const txs = getTransactions()
-  const savingsInvestIds = analysisExpenseSavingsInvestIds()
 
   // Pre-filter to baseline months by EFFECTIVE month, so CC purchases at
   // end-of-month whose raw date falls outside the calendar range still get
   // included in the right billing month.
   const monthsSet = new Set(months)
   const periodTx = txs.filter(t => t.date && monthsSet.has(getTxEffectiveMonth(t)))
+
+  // Per-month context (CC-detail set is month-scoped, so the lump-drop rule
+  // can flip month to month as cards come and go).
+  const monthCtx = {}
+  months.forEach(m => {
+    monthCtx[m] = _budgetMonthContext(periodTx.filter(t => getTxEffectiveMonth(t) === m))
+  })
 
   // Last-month budgets (for 70/30 blend), keyed by categoryId|type.
   const prevMonthKey = _bgPrevMonthKey(target)
@@ -131,7 +137,7 @@ function generateBudgetProposals(targetMonth) {
     const perMonth = months.map(m =>
       catTxs
         .filter(t => getTxEffectiveMonth(t) === m)
-        .reduce((s, t) => s + _bgCategoryAmount(t, type, savingsInvestIds), 0)
+        .reduce((s, t) => s + _bgCategoryAmount(t, type, monthCtx[m]), 0)
     )
     const { trimmed, outliers, wasTrimmed } = _bgTrimmedMean25(perMonth)
     const median = _bgMedian(perMonth)
